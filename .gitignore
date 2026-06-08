@@ -1,0 +1,8 @@
+.venv/
+__pycache__/
+*.pyc
+.streamlit/secrets.toml
+exports/*.log
+exports/pagamentos.csv
+backup/
+BACKUP_*/
