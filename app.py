@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from datetime import datetime
 import json
@@ -84,30 +84,64 @@ def aplicar_css() -> None:
         """
         <style>
         :root {
-            --lf-green:#16A34A;
+            --lf-blue:#0066B3;
+            --lf-turquoise:#20C7B5;
+            --lf-purple:#B000B9;
+            --lf-green:#00A859;
             --lf-neon:#00FF66;
             --lf-gold:#FFD700;
-            --lf-blue:#005CA9;
+            --lf-bg:#F5FBFF;
             --text:#111827;
         }
-        .stApp { background: linear-gradient(180deg,#F7FAFC 0%,#EEF7F0 100%); color:var(--text); }
+        .stApp { background: linear-gradient(180deg,#F5FBFF 0%,#E9FFFB 100%); color:var(--text); }
         .block-container { max-width: 1180px; padding-top: 1rem; }
         .hero {
-            background: linear-gradient(135deg,#005CA9 0%,#16A34A 100%);
-            color:white; border-radius:18px; padding:28px 32px; margin-bottom:18px;
-            box-shadow:0 18px 42px rgba(0,92,169,.20);
+            position:relative; overflow:hidden;
+            background: linear-gradient(135deg,#0066B3 0%,#20C7B5 100%);
+            color:white; border-radius:20px; padding:34px 36px; margin-bottom:18px;
+            box-shadow:0 18px 42px rgba(0,102,179,.24);
         }
-        .hero h1 { margin:0; font-size:42px; line-height:1.05; font-weight:950; }
-        .hero-sub { margin-top:8px; font-size:17px; font-weight:750; opacity:.96; }
-        .public-card {
-            background:linear-gradient(135deg,#ECFDF5 0%,#FEF3C7 100%);
-            border:1.5px solid #86EFAC; border-left:8px solid var(--lf-green);
-            border-radius:18px; padding:24px; text-align:center; margin:16px 0;
-            box-shadow:0 16px 34px rgba(22,163,74,.16);
+        .hero:before, .hero:after {
+            content:"ðŸ€ ðŸ€ ðŸ€"; position:absolute; color:rgba(255,255,255,.22);
+            font-size:46px; font-weight:900; letter-spacing:18px; transform:rotate(-12deg);
         }
-        .public-title { color:#065F46; font-size:30px; font-weight:950; line-height:1.15; margin-bottom:16px; }
-        .public-prize { color:#064E3B; font-size:34px; font-weight:950; margin:8px 0 12px; }
-        .public-meta { color:#374151; font-size:16px; font-weight:850; line-height:1.6; }
+        .hero:before { right:22px; top:18px; }
+        .hero:after { left:28px; bottom:-8px; font-size:34px; opacity:.5; }
+        .hero h1 { margin:0; font-size:46px; line-height:1.05; font-weight:950; position:relative; }
+        .hero-sub { margin-top:10px; font-size:18px; font-weight:750; opacity:.98; position:relative; }
+        .oficial-shell {
+            display:grid; grid-template-columns:1.35fr .85fr; gap:18px; align-items:stretch;
+            margin:16px 0 20px;
+        }
+        .public-card, .premiacao-card, .payment-panel {
+            background:#fff; border:1.5px solid rgba(32,199,181,.42);
+            border-radius:18px; box-shadow:0 16px 34px rgba(0,102,179,.10);
+        }
+        .public-card { padding:24px; border-top:6px solid var(--lf-turquoise); }
+        .public-title { color:var(--lf-blue); font-size:18px; font-weight:950; text-transform:uppercase; letter-spacing:.04em; }
+        .public-concurso { color:var(--lf-purple); font-size:30px; font-weight:950; margin:6px 0; }
+        .public-prize-label { color:#475569; font-size:15px; font-weight:850; margin-top:14px; }
+        .public-prize { color:var(--lf-purple); font-size:38px; font-weight:950; margin:2px 0 8px; }
+        .public-meta { color:#334155; font-size:16px; font-weight:850; line-height:1.55; }
+        .lotofacil-grid {
+            display:grid; grid-template-columns:repeat(5, minmax(42px, 1fr)); gap:0;
+            border:1px solid #D8B4FE; border-radius:14px; overflow:hidden; margin-top:18px;
+            background:#FBF5FF;
+        }
+        .lotofacil-dezena {
+            min-height:54px; display:flex; align-items:center; justify-content:center;
+            color:var(--lf-purple); font-size:25px; font-weight:950;
+            border-right:1px solid #E9D5FF; border-bottom:1px solid #E9D5FF;
+        }
+        .lotofacil-dezena:nth-child(5n) { border-right:0; }
+        .lotofacil-dezena:nth-last-child(-n+5) { border-bottom:0; }
+        .premiacao-card { padding:24px; border-top:6px solid var(--lf-purple); }
+        .premiacao-card h3 { color:var(--lf-purple); margin:0 0 14px; font-size:24px; font-weight:950; }
+        .premio-row {
+            display:flex; justify-content:space-between; gap:12px; padding:10px 0;
+            border-bottom:1px solid #E0F2FE; color:#1F2937; font-weight:850;
+        }
+        .premio-row:last-child { border-bottom:0; }
         @keyframes megaLed {
             0%,100% { opacity:.78; box-shadow:0 0 8px var(--lf-neon); }
             50% { opacity:1; box-shadow:0 0 20px var(--lf-neon),0 0 40px var(--lf-neon),0 0 80px var(--lf-neon); }
@@ -126,24 +160,24 @@ def aplicar_css() -> None:
             background:#FEF3C7; color:#92400E; border:1px solid #F59E0B;
             font-size:13px; font-weight:950;
         }
-        .step-label { margin:20px 0 6px; color:#065F46; font-size:17px; font-weight:950; letter-spacing:.04em; }
+        .step-label { margin:20px 0 6px; color:var(--lf-blue); font-size:17px; font-weight:950; letter-spacing:.04em; }
         .step-title { color:#111827; font-size:23px; line-height:1.2; font-weight:950; margin-bottom:10px; }
         .email-box {
-            background:#fff; border:1px solid #BBF7D0; border-radius:18px;
-            padding:20px; margin:20px 0 18px; box-shadow:0 12px 28px rgba(22,163,74,.12);
+            background:#fff; border:2px solid rgba(32,199,181,.48); border-radius:18px;
+            padding:20px; margin:20px 0 18px; box-shadow:0 12px 28px rgba(0,102,179,.10);
         }
         @keyframes emailGlow {
             0%,100% { box-shadow:0 0 0 rgba(0,255,102,0),0 12px 28px rgba(22,163,74,.10); }
             50% { box-shadow:0 0 18px rgba(0,255,102,.34),0 12px 28px rgba(22,163,74,.14); }
         }
         .st-key-email_pix_lotofacil input {
-            min-height:70px !important; border:3px solid var(--lf-neon) !important; border-radius:16px !important;
+            min-height:70px !important; border:3px solid var(--lf-turquoise) !important; border-radius:16px !important;
             font-size:22px !important; font-weight:850 !important; padding:14px 18px !important;
             background:#fff !important; color:#111827 !important;
         }
         .st-key-email_pix_lotofacil input:placeholder-shown { animation:emailGlow 1.8s infinite ease-in-out; }
         .st-key-email_pix_lotofacil label, .st-key-email_pix_lotofacil label * {
-            color:#065F46 !important; font-size:18px !important; font-weight:950 !important;
+            color:var(--lf-blue) !important; font-size:18px !important; font-weight:950 !important;
         }
         @keyframes pulseGlowPix {
             0%,100% { box-shadow:0 0 20px #FFD700,0 0 40px #FFD700,0 0 60px rgba(255,215,0,.8); transform:scale(1); }
@@ -158,15 +192,18 @@ def aplicar_css() -> None:
         .st-key-criar_pix_lotofacil button *, .st-key-criar_pix_lotofacil button p { color:#111827 !important; font-weight:950 !important; }
         .balls { display:flex; gap:8px; flex-wrap:wrap; justify-content:center; margin:12px 0; }
         .ball {
-            width:42px; height:42px; border-radius:50%; background:radial-gradient(circle at 32% 28%,#35C98D,#16A34A 62%,#065F46);
+            width:42px; height:42px; border-radius:50%; background:radial-gradient(circle at 32% 28%,#F0ABFC,#B000B9 62%,#701A75);
             color:#fff; display:inline-flex; align-items:center; justify-content:center; font-weight:950;
             box-shadow:inset 0 2px 5px rgba(255,255,255,.28),0 8px 18px rgba(22,163,74,.20);
         }
-        .footer { text-align:center; color:#4B5563; font-size:13px; padding:24px 0 10px; }
+        .footer { text-align:center; color:#4B5563; font-size:13px; padding:24px 0 10px; border-top:1px solid rgba(0,102,179,.14); margin-top:22px; }
         @media (max-width:760px) {
+            .hero { padding:24px 22px; }
             .hero h1 { font-size:32px; }
-            .public-title { font-size:24px; }
+            .oficial-shell { grid-template-columns:1fr; }
+            .public-concurso { font-size:25px; }
             .public-prize { font-size:27px; }
+            .lotofacil-dezena { min-height:46px; font-size:21px; }
             .st-key-prever_lotofacil_cta button { width:100% !important; min-height:80px !important; font-size:15px !important; }
             .st-key-criar_pix_lotofacil button { min-height:86px !important; font-size:20px !important; white-space:normal !important; }
             .st-key-email_pix_lotofacil input { font-size:19px !important; }
@@ -181,12 +218,18 @@ def dezenas_html(dezenas: list[int]) -> str:
     return '<div class="balls">' + "".join(f'<span class="ball">{d:02d}</span>' for d in dezenas) + "</div>"
 
 
+def dezenas_grid_lotofacil(dezenas: list[int]) -> str:
+    return '<div class="lotofacil-grid">' + "".join(
+        f'<div class="lotofacil-dezena">{dezena:02d}</div>' for dezena in dezenas
+    ) + "</div>"
+
+
 def render_header() -> None:
     st.markdown(
         f"""
         <div class="hero">
             <h1>Lotofacil Elite Pro</h1>
-            <div class="hero-sub">Sistema inteligente de analise e geracao de jogos Lotofacil</div>
+            <div class="hero-sub">Gere seus numeros da sorte com analise estatistica inteligente.</div>
             <div style="margin-top:8px;font-size:13px;font-weight:800;">{VERSAO_APP} | {STATUS_APP}</div>
         </div>
         """,
@@ -194,17 +237,35 @@ def render_header() -> None:
     )
 
 
-def render_card_publico(meta: dict) -> None:
+def render_card_publico(df: pd.DataFrame, meta: dict) -> None:
     premio = meta["premio_estimado"] if meta["premio_estimado"] != "Consultar CAIXA" else "Premio estimado aguardando atualizacao oficial."
+    ultimo = df.iloc[-1][COLUNAS_DEZENAS].astype(int).tolist() if not df.empty else []
+    ultimo_concurso = int(df.iloc[-1]["Concurso"]) if not df.empty else "-"
+    data_ultimo = str(df.iloc[-1]["Data"]) if not df.empty else "-"
+    grid = dezenas_grid_lotofacil(ultimo)
     st.markdown(
         f"""
-        <div class="public-card">
-            <div class="public-title">🍀 Gere seus numeros da sorte para o proximo sorteio da Lotofacil</div>
-            <div class="public-meta">🎯 Concurso: {meta['concurso_alvo']}</div>
-            <div class="public-meta" style="margin-top:10px;">💰 Premio estimado:</div>
-            <div class="public-prize">{premio}</div>
-            <div class="public-meta">📅 Data do sorteio:<br>{meta['data_sorteio']}</div>
-            <div class="public-meta" style="margin-top:14px;color:#065F46;">Esta previsao sera gerada para o concurso oficial disponivel no momento.</div>
+        <div class="oficial-shell">
+            <div class="public-card">
+                <div class="public-title">Resultado / Proximo Concurso</div>
+                <div class="public-concurso">Concurso: {meta['concurso_alvo']}</div>
+                <div class="public-meta">Data: {meta['data_sorteio']}</div>
+                <div class="public-prize-label">Premio estimado</div>
+                <div class="public-prize">{premio}</div>
+                <div class="public-meta" style="margin-top:12px;color:#0066B3;">Ultimo resultado carregado: concurso {ultimo_concurso} | {data_ultimo}</div>
+                {grid}
+            </div>
+            <div class="premiacao-card">
+                <h3>Premiacao</h3>
+                <div class="premio-row"><span>15 acertos</span><span>Aguardando</span></div>
+                <div class="premio-row"><span>14 acertos</span><span>Aguardando</span></div>
+                <div class="premio-row"><span>13 acertos</span><span>Aguardando</span></div>
+                <div class="premio-row"><span>12 acertos</span><span>Aguardando</span></div>
+                <div class="premio-row"><span>11 acertos</span><span>Aguardando</span></div>
+                <div style="margin-top:16px;color:#64748B;font-size:14px;font-weight:750;line-height:1.45;">
+                    Dados de premiacao aguardando atualizacao oficial.
+                </div>
+            </div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -232,7 +293,7 @@ def render_gate_pix(meta: dict) -> bool:
 
     if estado.get("aprovado"):
         horario = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-        st.success("✅ Pagamento confirmado\n\n🔓 Seus numeros da sorte foram liberados")
+        st.success("âœ… Pagamento confirmado\n\nðŸ”“ Seus numeros da sorte foram liberados")
         c1, c2 = st.columns(2)
         c1.metric("Horario da geracao", horario)
         c2.metric("Concurso alvo", meta["concurso_alvo"])
@@ -244,7 +305,7 @@ def render_gate_pix(meta: dict) -> bool:
     st.info("A Lotofacil e aleatoria. Estes numeros sao uma analise estatistica e nao garantem premio.")
     st.markdown('<div class="email-box"><div class="step-label">PASSO 1</div><div class="step-title">Informe seu e-mail para liberar seus numeros da sorte</div>', unsafe_allow_html=True)
     email = st.text_input(
-        "📧 Coloque seu e-mail aqui",
+        "ðŸ“§ Coloque seu e-mail aqui",
         value=str(estado.get("email_cliente", "")),
         placeholder="Digite seu melhor e-mail",
         key="email_pix_lotofacil",
@@ -256,7 +317,7 @@ def render_gate_pix(meta: dict) -> bool:
         st.error("Informe um e-mail valido para gerar o PIX.")
 
     st.markdown('<div class="step-label">PASSO 2</div><div class="step-title">Clique abaixo para gerar seu PIX</div>', unsafe_allow_html=True)
-    if st.button("💳 GERAR QR CODE PIX DE R$ 1,00", key="criar_pix_lotofacil", disabled=not email_valido, use_container_width=True):
+    if st.button("ðŸ’³ GERAR QR CODE PIX DE R$ 1,00", key="criar_pix_lotofacil", disabled=not email_valido, use_container_width=True):
         token = obter_token_mercado_pago()
         try:
             if not token:
@@ -296,8 +357,8 @@ def render_gate_pix(meta: dict) -> bool:
         st.text_area("Codigo PIX copia e cola", estado["qr_code"], height=110)
 
     if estado.get("payment_id"):
-        st.markdown('<div class="step-label">PASSO 3</div><div class="step-title">🔓 Liberar meus numeros da sorte</div>', unsafe_allow_html=True)
-        if st.button("🔓 LIBERAR MEUS NUMEROS DA SORTE", type="primary", use_container_width=True):
+        st.markdown('<div class="step-label">PASSO 3</div><div class="step-title">ðŸ”“ Liberar meus numeros da sorte</div>', unsafe_allow_html=True)
+        if st.button("ðŸ”“ LIBERAR MEUS NUMEROS DA SORTE", type="primary", use_container_width=True):
             token = obter_token_mercado_pago()
             try:
                 dados_pix = extrair_dados_pix(consultar_pagamento_pix(token, estado["payment_id"]))
@@ -385,13 +446,13 @@ def main() -> None:
     render_header()
     df = carregar_base()
     meta = metadados_publicos(df)
-    render_card_publico(meta)
+    render_card_publico(df, meta)
 
     if modo_admin_ativo():
         render_admin(df, meta)
     else:
-        st.markdown('<div style="text-align:center;"><span class="badge">🔥 MAIS ACESSADO</span></div>', unsafe_allow_html=True)
-        if st.button("🎯 PREVER PROXIMO SORTEIO", key="prever_lotofacil_cta", use_container_width=True):
+        st.markdown('<div style="text-align:center;"><span class="badge">ðŸ”¥ MAIS ACESSADO</span></div>', unsafe_allow_html=True)
+        if st.button("ðŸŽ¯ PREVER PROXIMO SORTEIO", key="prever_lotofacil_cta", use_container_width=True):
             st.session_state.previsao_iniciada = True
         st.session_state.setdefault("previsao_iniciada", True)
         if st.session_state.previsao_iniciada:
