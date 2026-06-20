@@ -74,18 +74,30 @@ def executar() -> dict:
         "CSV": "EXPORTAR ESTRATÉGIA CSV" in downloads_iniciais,
         "TXT": "EXPORTAR ESTRATÉGIA TXT" in downloads_iniciais,
     }
+    heatmap_ok = len(app.get("plotly_chart")) >= 1
+    next(item for item in app.selectbox if item.label == "Concursos no laboratório").select("5")
+    next(item for item in app.selectbox if item.label == "Jogos por estratégia").select("5")
+    next(item for item in app.button if item.label == "EXECUTAR LABORATÓRIO ESTATÍSTICO").click().run(timeout=240)
+    downloads_laboratorio = [item.label for item in app.get("download_button")]
+    laboratorio_execucao_ok = (
+        len(app.exception) == 0
+        and "EXPORTAR LABORATÓRIO CSV" in downloads_laboratorio
+        and "EXPORTAR ROI CSV" in downloads_laboratorio
+        and "EXPORTAR PADRÕES CSV" in downloads_laboratorio
+        and "EXPORTAR HISTÓRICO DO LABORATÓRIO" in downloads_laboratorio
+    )
 
     next(item for item in app.button if item.label == "GERAR / ATUALIZAR CARTEIRA").click().run(timeout=90)
     html_gerado = "\n".join(item.value for item in app.markdown)
 
-    app.selectbox[0].select("30").run(timeout=150)
+    next(item for item in app.selectbox if item.label == "Quantidade de jogos da carteira").select("30").run(timeout=150)
     next(item for item in app.button if item.label == "GERAR / ATUALIZAR CARTEIRA").click().run(timeout=150)
     html_expandido = "\n".join(item.value for item in app.markdown)
     custo_30_ok = any("R$ 105.00" in item.value for item in app.caption)
 
-    app.slider[0].set_value(10)
-    app.slider[1].set_value(100)
-    app.selectbox[1].set_value(10)
+    next(item for item in app.slider if item.label == "Concursos para simular").set_value(10)
+    next(item for item in app.slider if item.label == "Candidatos analisados por perfil").set_value(100)
+    next(item for item in app.selectbox if item.label == "Jogos por carteira no backtest").select("10")
     next(item for item in app.button if item.label == "EXECUTAR BACKTEST").click().run(timeout=240)
     downloads_backtest = [item.label for item in app.get("download_button")]
     backtest_ok = any("Melhor perfil" in item.value for item in app.success)
@@ -93,7 +105,7 @@ def executar() -> dict:
     next(item for item in app.button if item.label == "CONFERIR JOGOS SALVOS").click().run(timeout=90)
     ranking_ok = any("Score da dezena" in tabela.value.columns for tabela in app.dataframe)
 
-    esperado_abas = ["Gerar Jogos", "Estratégia Inteligente", "Backtest", "Conferir Jogos", "Ranking das Dezenas", "Configurações"]
+    esperado_abas = ["Gerar Jogos", "Estratégia Inteligente", "Laboratório Estatístico", "Backtest", "Conferir Jogos", "Ranking das Dezenas", "Configurações"]
     resultado = {
         "abas": abas,
         "abas_ok": abas == esperado_abas,
@@ -116,6 +128,9 @@ def executar() -> dict:
         "ranking_ok": ranking_ok,
         "configuracoes_ok": any(item.label == "ATUALIZAR BASE OFICIAL" for item in app.button),
         "estrategia_inteligente_ok": any(item.label == "Melhor perfil do dia" for item in app.metric),
+        "laboratorio_estatistico_ok": any(item.label == "EXECUTAR LABORATÓRIO ESTATÍSTICO" for item in app.button),
+        "heatmap_5x5_ok": heatmap_ok,
+        "laboratorio_execucao_ok": laboratorio_execucao_ok,
         "falha_atualizacao_preserva_base": retorno_atualizacao is False and hash_antes == hash_depois,
         "aviso_responsavel": "sem garantia de prêmio" in html.lower(),
     }

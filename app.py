@@ -4,6 +4,7 @@ import re
 import time
 
 import pandas as pd
+import plotly.express as px
 import streamlit as st
 
 from src.carregar_dados import (
@@ -29,10 +30,17 @@ from src.motor_elite_lotofacil import (
 )
 from src.motor_elite_v2 import MOTOR_ELITE_V2, gerar_jogos_v2, ranking_dezenas_v2
 from src.estrategia_inteligente import gerar_estrategia_do_dia
+from src.laboratorio_estatistico import (
+    calcular_roi_simulado,
+    dados_heatmap,
+    executar_laboratorio,
+    ler_historico_laboratorio,
+    salvar_historico_laboratorio,
+)
 from src.validacao_jogos import ConfiguracaoMotor, validar_carteira
 
 
-st.set_page_config(page_title="Lotofácil Elite Pro V3", page_icon="LF", layout="wide")
+st.set_page_config(page_title="Lotofácil Elite Pro V4", page_icon="LF", layout="wide")
 
 DESCRICOES_JOGOS = {
     "Diamante": "Busca dos 15 pelo maior score estatístico geral e ranking temporal.",
@@ -318,8 +326,8 @@ def render_header() -> None:
     st.markdown(
         f"""
         <div class="hero">
-            <h1>Lotofácil Elite Pro V3</h1>
-            <div class="hero-sub">V3 Inteligente • Versão gratuita • Análise estatística sem garantia de prêmio</div>
+            <h1>Lotofácil Elite Pro V4</h1>
+            <div class="hero-sub">V4 Laboratório Estatístico • Versão gratuita • Análise estatística sem garantia de prêmio</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -758,6 +766,89 @@ def render_estrategia_inteligente(df: pd.DataFrame) -> None:
     txt.download_button("EXPORTAR ESTRATÉGIA TXT", estrategia.texto().encode("utf-8"), "melhor_estrategia_do_dia.txt", "text/plain", width="stretch")
 
 
+def render_laboratorio_estatistico(df: pd.DataFrame) -> None:
+    st.subheader("Laboratório Estatístico")
+    st.caption("Todas as estratégias usam o mesmo passado, a mesma quantidade de jogos e o mesmo concurso-alvo.")
+
+    heatmap = dados_heatmap(df)
+    metrica_heatmap = st.selectbox(
+        "Métrica do heatmap 5×5",
+        ["Frequência histórica", "Frequência recente", "Atraso", "Score V3"],
+        key="lab_metrica_heatmap",
+    )
+    grade = heatmap.pivot(index="Linha", columns="Coluna", values=metrica_heatmap)
+    figura = px.imshow(
+        grade,
+        text_auto=".1f",
+        color_continuous_scale="Viridis",
+        aspect="equal",
+        labels={"color": metrica_heatmap},
+        title=f"Heatmap das 25 dezenas · {metrica_heatmap}",
+    )
+    figura.update_xaxes(title="Coluna", dtick=1)
+    figura.update_yaxes(title="Linha", dtick=1, autorange="reversed")
+    st.plotly_chart(figura, width="stretch")
+
+    controles = st.columns(3)
+    concursos = controles[0].selectbox("Concursos no laboratório", [5, 10, 20, 30, 50], index=1, key="lab_concursos")
+    quantidade_jogos = controles[1].selectbox("Jogos por estratégia", [5, 10, 20, 30], key="lab_quantidade_jogos")
+    valor_unitario = controles[2].number_input("Valor estimado por jogo (R$)", 0.01, 100.0, float(st.session_state.get("cfg_custo_unitario", 3.50)), 0.50, key="lab_valor_unitario")
+
+    with st.expander("Premiações estimadas para simulação de ROI"):
+        premios = {
+            11: st.number_input("Retorno estimado — 11 acertos", 0.0, 10_000_000.0, 7.0, 1.0, key="lab_premio_11"),
+            12: st.number_input("Retorno estimado — 12 acertos", 0.0, 10_000_000.0, 14.0, 1.0, key="lab_premio_12"),
+            13: st.number_input("Retorno estimado — 13 acertos", 0.0, 10_000_000.0, 35.0, 5.0, key="lab_premio_13"),
+            14: st.number_input("Retorno estimado — 14 acertos", 0.0, 10_000_000.0, 1500.0, 100.0, key="lab_premio_14"),
+            15: st.number_input("Retorno estimado — 15 acertos", 0.0, 100_000_000.0, 1_500_000.0, 10_000.0, key="lab_premio_15"),
+        }
+    st.warning("ROI e retornos usam valores estimados e não garantidos. Confirme valores oficiais antes de qualquer decisão.")
+
+    if st.button("EXECUTAR LABORATÓRIO ESTATÍSTICO", type="primary", width="stretch"):
+        with st.spinner("Comparando estratégias sem usar resultados futuros..."):
+            resultado = executar_laboratorio(
+                df,
+                quantidade_concursos=concursos,
+                quantidade_jogos=quantidade_jogos,
+                configuracao=configuracao_atual(),
+                amostra_minima_padrao=max(5, concursos),
+            )
+            roi = calcular_roi_simulado(resultado.detalhes_jogos, valor_unitario, premios)
+            salvar_historico_laboratorio(resultado, roi, quantidade_jogos)
+            st.session_state.laboratorio_v4 = resultado
+            st.session_state.laboratorio_v4_roi = roi
+
+    resultado = st.session_state.get("laboratorio_v4")
+    roi = st.session_state.get("laboratorio_v4_roi")
+    if resultado is None or roi is None:
+        st.info("Execute o laboratório para comparar as cinco estratégias.")
+    else:
+        st.markdown("#### Comparação das estratégias")
+        st.dataframe(resultado.resumo, hide_index=True, width="stretch")
+        melhores = pd.DataFrame([{"Métrica": metrica, "Melhor estratégia": estrategia} for metrica, estrategia in resultado.melhores_metricas.items()])
+        st.markdown("#### Melhor estratégia por métrica")
+        st.dataframe(melhores, hide_index=True, width="stretch")
+        st.markdown("#### ROI simulado")
+        st.dataframe(roi, hide_index=True, width="stretch")
+        st.markdown("#### Padrões com amostra mínima")
+        if resultado.padroes.empty:
+            st.info("Nenhum padrão atingiu a amostra mínima nesta execução.")
+        else:
+            st.dataframe(resultado.padroes.head(100), hide_index=True, width="stretch")
+        downloads = st.columns(3)
+        downloads[0].download_button("EXPORTAR LABORATÓRIO CSV", resultado.csv_bytes(), "laboratorio_estatistico_v4.csv", "text/csv", width="stretch")
+        downloads[1].download_button("EXPORTAR ROI CSV", roi.to_csv(index=False).encode("utf-8-sig"), "roi_simulado_v4.csv", "text/csv", width="stretch")
+        downloads[2].download_button("EXPORTAR PADRÕES CSV", resultado.padroes.to_csv(index=False).encode("utf-8-sig"), "padroes_estatisticos_v4.csv", "text/csv", width="stretch")
+
+    historico = ler_historico_laboratorio()
+    st.markdown("#### Banco histórico de estratégias")
+    if historico.empty:
+        st.info("O banco será preenchido após a primeira execução do laboratório.")
+    else:
+        st.dataframe(historico.tail(100), hide_index=True, width="stretch")
+        st.download_button("EXPORTAR HISTÓRICO DO LABORATÓRIO", historico.to_csv(index=False).encode("utf-8-sig"), "historico_laboratorio_v4.csv", "text/csv", width="stretch")
+
+
 def main() -> None:
     aplicar_css()
     render_header()
@@ -765,18 +856,20 @@ def main() -> None:
     meta = metadados_publicos(df)
     render_card_publico(df, meta)
 
-    abas = st.tabs(["Gerar Jogos", "Estratégia Inteligente", "Backtest", "Conferir Jogos", "Ranking das Dezenas", "Configurações"])
+    abas = st.tabs(["Gerar Jogos", "Estratégia Inteligente", "Laboratório Estatístico", "Backtest", "Conferir Jogos", "Ranking das Dezenas", "Configurações"])
     with abas[0]:
         render_resultado(df, meta, configuracao_atual())
     with abas[1]:
         render_estrategia_inteligente(df)
     with abas[2]:
-        render_backtest(df)
+        render_laboratorio_estatistico(df)
     with abas[3]:
-        render_conferencia(df)
+        render_backtest(df)
     with abas[4]:
-        render_ranking(df)
+        render_conferencia(df)
     with abas[5]:
+        render_ranking(df)
+    with abas[6]:
         render_configuracoes()
 
 if __name__ == "__main__":

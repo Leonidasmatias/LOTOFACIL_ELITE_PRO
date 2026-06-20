@@ -4,5 +4,6 @@ __pycache__/
 .streamlit/secrets.toml
 exports/*.log
 exports/pagamentos.csv
+exports/historico_laboratorio_v4.csv
 backup/
 BACKUP_*/
