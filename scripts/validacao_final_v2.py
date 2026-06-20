@@ -54,11 +54,16 @@ def executar() -> dict:
     html = "\n".join(item.value for item in app.markdown)
     downloads_iniciais = [item.label for item in app.get("download_button")]
 
-    next(item for item in app.button if item.label == "GERAR / ATUALIZAR OS 5 JOGOS").click().run(timeout=90)
+    next(item for item in app.button if item.label == "GERAR / ATUALIZAR CARTEIRA").click().run(timeout=90)
     html_gerado = "\n".join(item.value for item in app.markdown)
+
+    app.selectbox[0].select("30").run(timeout=150)
+    next(item for item in app.button if item.label == "GERAR / ATUALIZAR CARTEIRA").click().run(timeout=150)
+    html_expandido = "\n".join(item.value for item in app.markdown)
 
     app.slider[0].set_value(10)
     app.slider[1].set_value(100)
+    app.selectbox[1].set_value(10)
     next(item for item in app.button if item.label == "EXECUTAR BACKTEST").click().run(timeout=240)
     downloads_backtest = [item.label for item in app.get("download_button")]
     backtest_ok = any("Melhor perfil" in item.value for item in app.success)
@@ -66,13 +71,16 @@ def executar() -> dict:
     next(item for item in app.button if item.label == "CONFERIR JOGOS SALVOS").click().run(timeout=90)
     ranking_ok = any("Score da dezena" in tabela.value.columns for tabela in app.dataframe)
 
-    esperado_abas = ["Gerar Jogos", "Backtest", "Conferir Jogos", "Ranking das Dezenas", "Configurações"]
+    esperado_abas = ["Gerar Jogos", "Estratégia Inteligente", "Backtest", "Conferir Jogos", "Ranking das Dezenas", "Configurações"]
     resultado = {
         "abas": abas,
         "abas_ok": abas == esperado_abas,
         "sem_excecoes_streamlit": len(app.exception) == 0,
         "jogos_html": html_gerado.count('class="elite-game-card"'),
         "dezenas_html": html_gerado.count('class="elite-ball"'),
+        "jogos_html_30": html_expandido.count('class="elite-game-card"'),
+        "dezenas_html_30": html_expandido.count('class="elite-ball"'),
+        "carteira_30_jogos_ok": html_expandido.count('class="elite-game-card"') == 30 and html_expandido.count('class="elite-ball"') == 450,
         "jogos_validos": len(carteira) == 5 and all(len(jogo) == len(set(jogo)) == 15 for jogo in carteira),
         "csv_jogos_disponivel": "DOWNLOAD CSV" in downloads_iniciais,
         "csv_backtest_disponivel": "EXPORTAR RELATÓRIO DE BACKTEST CSV" in downloads_backtest,
@@ -80,6 +88,7 @@ def executar() -> dict:
         "backtest_ok": backtest_ok,
         "ranking_ok": ranking_ok,
         "configuracoes_ok": any(item.label == "ATUALIZAR BASE OFICIAL" for item in app.button),
+        "estrategia_inteligente_ok": any(item.label == "Melhor perfil do dia" for item in app.metric),
         "falha_atualizacao_preserva_base": retorno_atualizacao is False and hash_antes == hash_depois,
         "aviso_responsavel": "sem garantia de prêmio" in html.lower(),
     }

@@ -64,7 +64,7 @@ class InterfacePrincipalTest(unittest.TestCase):
         for perfil in ["Diamante", "Ouro", "Prata", "Agressivo", "Conservador"]:
             self.assertIn(perfil, self.html)
         labels = [button.label for button in self.app.button]
-        self.assertIn("GERAR / ATUALIZAR OS 5 JOGOS", labels)
+        self.assertIn("GERAR / ATUALIZAR CARTEIRA", labels)
         self.assertIn("SALVAR JOGOS PARA CONFERÊNCIA", labels)
         self.assertIn("CONFERIR JOGOS SALVOS", labels)
         self.assertNotIn("PREVER PROXIMO SORTEIO", " ".join(labels))
@@ -126,7 +126,7 @@ class InterfacePrincipalTest(unittest.TestCase):
         fonte = Path("app.py").read_text(encoding="utf-8")
         trecho = fonte[fonte.index("def render_resultado"):fonte.index("def main")]
         pos_intro = trecho.index("Previsão estatística para o próximo sorteio")
-        pos_botao = trecho.index("GERAR / ATUALIZAR OS 5 JOGOS")
+        pos_botao = trecho.index("GERAR / ATUALIZAR CARTEIRA")
         pos_carteira = trecho.index("CARTEIRA ELITE Nº")
         pos_jogos = trecho.index("montar_html_jogos(jogos)")
         pos_csv = trecho.index("DOWNLOAD CSV")

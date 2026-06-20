@@ -14,10 +14,11 @@ from src.carregar_dados import (
     atualizar_base_local,
     resumo_base,
 )
-from src.backtest_lotofacil import executar_backtest
+from src.backtest_lotofacil import executar_backtest_comparativo
 from src.jogos_salvos import (
     CAMINHO_JOGOS_SALVOS,
     conferir_jogos_salvos,
+    historico_desempenho_carteiras,
     ler_jogos_salvos,
     normalizar_colunas_jogos_salvos,
     salvar_carteira,
@@ -27,10 +28,11 @@ from src.motor_elite_lotofacil import (
     assinatura_portfolio,
 )
 from src.motor_elite_v2 import MOTOR_ELITE_V2, gerar_jogos_v2, ranking_dezenas_v2
+from src.estrategia_inteligente import gerar_estrategia_do_dia
 from src.validacao_jogos import ConfiguracaoMotor, validar_carteira
 
 
-st.set_page_config(page_title="Lotofácil Elite Pro V2", page_icon="LF", layout="wide")
+st.set_page_config(page_title="Lotofácil Elite Pro V3", page_icon="LF", layout="wide")
 
 DESCRICOES_JOGOS = {
     "Diamante": "Busca dos 15 pelo maior score estatístico geral e ranking temporal.",
@@ -316,8 +318,8 @@ def render_header() -> None:
     st.markdown(
         f"""
         <div class="hero">
-            <h1>Lotofácil Elite Pro V2</h1>
-            <div class="hero-sub">V2 Funcional • Versão gratuita • Análise estatística sem garantia de prêmio</div>
+            <h1>Lotofácil Elite Pro V3</h1>
+            <div class="hero-sub">V3 Inteligente • Versão gratuita • Análise estatística sem garantia de prêmio</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -362,14 +364,20 @@ def render_card_publico(df: pd.DataFrame, meta: dict) -> None:
 def montar_html_jogos(jogos: pd.DataFrame) -> str:
     jogos = normalizar_jogos_gerados(jogos)
     cards = []
-    for posicao, nome in enumerate(NOMES_JOGOS_PRODUCAO, start=1):
-        row = jogos[jogos["Perfil"] == nome].iloc[0]
+    ocorrencias: dict[str, int] = {}
+    total = len(jogos)
+    for posicao, (_, row) in enumerate(jogos.iterrows(), start=1):
+        nome = str(row["Perfil"])
+        ocorrencias[nome] = ocorrencias.get(nome, 0) + 1
+        titulo = TITULOS_JOGOS.get(nome, nome)
+        if ocorrencias[nome] > 1:
+            titulo = f"{titulo} · variação {ocorrencias[nome]}"
         dezenas = [int(row[f"Bola{i}"]) for i in range(1, 16)]
         bolas = "".join(f'<span class="elite-ball">{dezena:02d}</span>' for dezena in dezenas)
         cards.append(
             '<article class="elite-game-card">'
-            f'<div class="elite-game-top"><div class="elite-game-name">{TITULOS_JOGOS[nome]}</div><div class="elite-game-position">JOGO {posicao}/5</div></div>'
-            f'<div class="elite-game-description">{DESCRICOES_JOGOS[nome]}</div>'
+            f'<div class="elite-game-top"><div class="elite-game-name">{titulo}</div><div class="elite-game-position">JOGO {posicao}/{total}</div></div>'
+            f'<div class="elite-game-description">{DESCRICOES_JOGOS.get(nome, "Estratégia estatística diversificada.")}</div>'
             f'<div class="elite-balls">{bolas}</div>'
             '<div class="elite-game-meta">'
             '<span>15 dezenas</span>'
@@ -391,7 +399,7 @@ def montar_html_motor(df: pd.DataFrame, meta: dict) -> str:
     ultimo_concurso = int(df["Concurso"].max()) if not df.empty else "-"
     return (
         '<section class="engine-panel">'
-        f'<div class="engine-item"><div class="engine-label">Motor</div><div class="engine-value">{MOTOR_ELITE_V2} · evolução do ELITE_SCORE_V35_TEMPORAL</div></div>'
+        f'<div class="engine-item"><div class="engine-label">Motor</div><div class="engine-value">V3_INTELIGENTE sobre {MOTOR_ELITE_V2} · evolução do ELITE_SCORE_V35_TEMPORAL</div></div>'
         f'<div class="engine-item"><div class="engine-label">Base histórica</div><div class="engine-value">dados/{CAMINHO_BASE_PADRAO.name}</div></div>'
         f'<div class="engine-item"><div class="engine-label">Último concurso carregado</div><div class="engine-value">{ultimo_concurso}</div></div>'
         f'<div class="engine-item"><div class="engine-label">Próximo concurso estimado</div><div class="engine-value">{meta["concurso_alvo"]}</div></div>'
@@ -522,6 +530,19 @@ def render_conferencia(df: pd.DataFrame) -> None:
         "text/csv",
         width="stretch",
     )
+    st.markdown('<div class="summary-title">Histórico de desempenho das carteiras</div>', unsafe_allow_html=True)
+    historico = historico_desempenho_carteiras()
+    if historico.empty:
+        st.info("O histórico agregado será exibido após salvar a primeira carteira.")
+    else:
+        st.dataframe(historico, hide_index=True, width="stretch")
+        st.download_button(
+            "EXPORTAR HISTÓRICO CSV",
+            historico.to_csv(index=False).encode("utf-8-sig"),
+            "historico_carteiras_lotofacil_v3.csv",
+            "text/csv",
+            width="stretch",
+        )
 
 
 def render_resultado(df: pd.DataFrame, meta: dict, configuracao: ConfiguracaoMotor | None = None) -> None:
@@ -533,9 +554,12 @@ def render_resultado(df: pd.DataFrame, meta: dict, configuracao: ConfiguracaoMot
         'Os cinco perfis usam estratégias diferentes para ampliar a cobertura inteligente, sempre com foco no melhor resultado possível.</div>',
         unsafe_allow_html=True,
     )
+    quantidade = st.selectbox("Quantidade de jogos da carteira", [5, 10, 20, 30], key="quantidade_carteira")
+    custo_unitario = float(st.session_state.get("cfg_custo_unitario", 3.50))
+    st.caption(f"Custo estimado da carteira: R$ {quantidade * custo_unitario:,.2f} · valor unitário configurável")
     coluna_gerar, coluna_salvar = st.columns([1.35, 0.9])
     with coluna_gerar:
-        atualizar = st.button("GERAR / ATUALIZAR OS 5 JOGOS", key="atualizar_jogos_elite", type="primary", width="stretch")
+        atualizar = st.button("GERAR / ATUALIZAR CARTEIRA", key="atualizar_jogos_elite", type="primary", width="stretch")
     with coluna_salvar:
         salvar = st.button("SALVAR JOGOS PARA CONFERÊNCIA", key="salvar_jogos_elite", width="stretch")
     st.markdown(
@@ -546,12 +570,17 @@ def render_resultado(df: pd.DataFrame, meta: dict, configuracao: ConfiguracaoMot
     try:
         if "elite_generation_counter" not in st.session_state:
             st.session_state.elite_generation_counter = 0
-        if atualizar or not isinstance(st.session_state.get("elite_generated_games"), pd.DataFrame):
+        if (
+            atualizar
+            or not isinstance(st.session_state.get("elite_generated_games"), pd.DataFrame)
+            or int(st.session_state.get("elite_generated_quantity", 0)) != quantidade
+        ):
             st.session_state.elite_generation_counter += 1
             semente = time.time_ns() ^ (st.session_state.elite_generation_counter * 1_000_003)
-            jogos_gerados = gerar_jogos_v2(df, configuracao=configuracao, semente=semente)
+            jogos_gerados = gerar_jogos_v2(df, quantidade=quantidade, configuracao=configuracao, semente=semente)
             jogos_gerados = normalizar_jogos_gerados(jogos_gerados)
             st.session_state.elite_generated_games = jogos_gerados
+            st.session_state.elite_generated_quantity = quantidade
             st.session_state.last_elite_portfolio_signature = assinatura_portfolio(jogos_gerados)
         st.session_state.jogos_elite_principais = st.session_state.elite_generated_games
         jogos = normalizar_jogos_gerados(st.session_state.jogos_elite_principais)
@@ -560,7 +589,7 @@ def render_resultado(df: pd.DataFrame, meta: dict, configuracao: ConfiguracaoMot
             configuracao,
         )
     except Exception as erro:
-        st.error(f"Nao foi possivel gerar os 5 jogos inteligentes: {erro}")
+        st.error(f"Não foi possível gerar a carteira inteligente: {erro}")
         return
 
     for nome in NOMES_JOGOS_PRODUCAO:
@@ -619,20 +648,33 @@ def configuracao_atual() -> ConfiguracaoMotor:
 def render_backtest(df: pd.DataFrame) -> None:
     st.subheader("Backtest histórico sem vazamento temporal")
     st.caption("Cada concurso é simulado usando somente os resultados anteriores a ele.")
-    quantidade = st.slider("Concursos para simular", 10, min(300, max(10, len(df) - 100)), 50, 10)
+    quantidade = st.slider("Concursos para simular", 10, min(150, max(10, len(df) - 100)), 20, 10)
+    quantidade_jogos = st.selectbox("Jogos por carteira no backtest", [5, 10, 20, 30], key="backtest_quantidade_jogos")
     if st.button("EXECUTAR BACKTEST", type="primary", width="stretch"):
         with st.spinner("Simulando concursos históricos..."):
-            st.session_state.backtest_v2 = executar_backtest(
+            st.session_state.backtest_v3 = executar_backtest_comparativo(
                 df,
                 quantidade_concursos=quantidade,
+                quantidade_jogos=quantidade_jogos,
                 configuracao=configuracao_atual(),
-                candidatos_por_perfil=min(300, configuracao_atual().candidatos_por_perfil),
+                candidatos_por_perfil=min(220, configuracao_atual().candidatos_por_perfil),
             )
-    resultado = st.session_state.get("backtest_v2")
+    resultado = st.session_state.get("backtest_v3")
     if resultado is None:
         st.info("Execute o backtest para medir 11+, 12+, 13+, 14+ e 15 acertos por perfil.")
         return
-    st.success(f"Melhor perfil na amostra: {resultado.melhor_perfil}")
+    melhor_perfil = str(resultado.resumo_perfis.iloc[0]["Perfil"]) if not resultado.resumo_perfis.empty else "Sem resultado"
+    st.success(f"Melhor perfil na amostra: {melhor_perfil}")
+    st.markdown("#### Motor Elite × carteiras aleatórias")
+    st.dataframe(resultado.resumo, hide_index=True, width="stretch")
+    st.caption("Vantagem positiva favorece o Motor Elite; valor negativo indica desvantagem. Valores em pontos percentuais sobre a carteira aleatória equivalente.")
+    if resultado.melhor_carteira:
+        st.info(
+            f"Melhor carteira simulada: {resultado.melhor_carteira['Motor']} · "
+            f"concurso {resultado.melhor_carteira['Concurso']} · "
+            f"{resultado.melhor_carteira['Melhor acerto']} acertos."
+        )
+    st.markdown("#### Desempenho por perfil")
     st.dataframe(resultado.resumo_perfis, hide_index=True, width="stretch")
     st.dataframe(resultado.detalhes.tail(250), hide_index=True, width="stretch")
     st.download_button(
@@ -673,6 +715,7 @@ def render_configuracoes() -> None:
         st.number_input("Repetidas do último — máximo", 0, 15, 12, key="cfg_repetidas_max")
         st.number_input("Sequência máxima", 2, 15, 7, key="cfg_sequencia")
     st.slider("Candidatos analisados por perfil", 100, 2000, 700, 100, key="cfg_candidatos")
+    st.number_input("Custo estimado por jogo (R$)", 0.0, 100.0, 3.50, 0.50, key="cfg_custo_unitario")
     try:
         configuracao_atual().validar()
         st.success("Configuração válida.")
@@ -688,6 +731,33 @@ def render_configuracoes() -> None:
     st.info("Jogue com responsabilidade. A busca estatística pelos 15 acertos não garante prêmio.")
 
 
+@st.cache_data(show_spinner=False)
+def estrategia_do_dia_cached(df: pd.DataFrame, config: ConfiguracaoMotor):
+    return gerar_estrategia_do_dia(df, configuracao=config)
+
+
+def render_estrategia_inteligente(df: pd.DataFrame) -> None:
+    st.subheader("Estratégia Inteligente")
+    st.caption("Decisão operacional baseada no histórico e em backtest temporal sem resultado futuro.")
+    with st.spinner("Calculando a melhor estratégia do dia..."):
+        estrategia = estrategia_do_dia_cached(df, configuracao_atual())
+    colunas = st.columns(3)
+    colunas[0].metric("Melhor perfil do dia", estrategia.perfil_recomendado)
+    colunas[1].metric("Nível de risco", estrategia.nivel_risco)
+    colunas[2].metric("Jogos recomendados", estrategia.quantidade_jogos)
+    st.info(estrategia.justificativa)
+    st.dataframe(estrategia.ranking_perfis, hide_index=True, width="stretch")
+    forte, alerta = st.columns(2)
+    forte.markdown("**Dezenas mais fortes**")
+    forte.write(" · ".join(f"{dezena:02d}" for dezena in estrategia.dezenas_fortes))
+    alerta.markdown("**Dezenas em alerta**")
+    alerta.write(" · ".join(f"{dezena:02d}" for dezena in estrategia.dezenas_alerta))
+    st.text_area("Melhor Estratégia do Dia", estrategia.texto(), height=310)
+    csv, txt = st.columns(2)
+    csv.download_button("EXPORTAR ESTRATÉGIA CSV", estrategia.csv_bytes(), "melhor_estrategia_do_dia.csv", "text/csv", width="stretch")
+    txt.download_button("EXPORTAR ESTRATÉGIA TXT", estrategia.texto().encode("utf-8"), "melhor_estrategia_do_dia.txt", "text/plain", width="stretch")
+
+
 def main() -> None:
     aplicar_css()
     render_header()
@@ -695,16 +765,18 @@ def main() -> None:
     meta = metadados_publicos(df)
     render_card_publico(df, meta)
 
-    abas = st.tabs(["Gerar Jogos", "Backtest", "Conferir Jogos", "Ranking das Dezenas", "Configurações"])
+    abas = st.tabs(["Gerar Jogos", "Estratégia Inteligente", "Backtest", "Conferir Jogos", "Ranking das Dezenas", "Configurações"])
     with abas[0]:
         render_resultado(df, meta, configuracao_atual())
     with abas[1]:
-        render_backtest(df)
+        render_estrategia_inteligente(df)
     with abas[2]:
-        render_conferencia(df)
+        render_backtest(df)
     with abas[3]:
-        render_ranking(df)
+        render_conferencia(df)
     with abas[4]:
+        render_ranking(df)
+    with abas[5]:
         render_configuracoes()
 
 if __name__ == "__main__":

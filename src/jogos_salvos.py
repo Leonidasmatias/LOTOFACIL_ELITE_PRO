@@ -194,3 +194,30 @@ def conferir_jogos_salvos(
     salvos = normalizar_colunas_jogos_salvos(salvos)
     salvos.to_csv(caminho, index=False, encoding="utf-8-sig")
     return salvos
+
+
+def historico_desempenho_carteiras(caminho: Path = CAMINHO_JOGOS_SALVOS) -> pd.DataFrame:
+    salvos = ler_jogos_salvos(caminho)
+    colunas = ["Data da geração", "Carteira", "Concurso Alvo", "Perfis", "Quantidade de jogos", "Resultado conferido", "Melhor acerto", "Média de acertos", "Status"]
+    if salvos.empty:
+        return pd.DataFrame(columns=colunas)
+    registros = []
+    grupos = salvos.groupby(["DataHora", "Carteira", "Concurso Alvo"], dropna=False, sort=False)
+    for (data_hora, carteira, concurso), grupo in grupos:
+        pendente = grupo["Status"].astype(str).str.upper().eq("PENDENTE").any()
+        acertos = pd.to_numeric(grupo["Acertos"], errors="coerce").fillna(0).astype(int)
+        melhor = int(acertos.max()) if not pendente else 0
+        media = round(float(acertos.mean()), 4) if not pendente else 0.0
+        status = "AGUARDANDO RESULTADO" if pendente else ("PREMIADO" if melhor >= 11 else "SEM PRÊMIO")
+        registros.append({
+            "Data da geração": str(data_hora),
+            "Carteira": str(carteira),
+            "Concurso Alvo": str(concurso),
+            "Perfis": ", ".join(dict.fromkeys(grupo["Perfil"].astype(str))),
+            "Quantidade de jogos": int(len(grupo)),
+            "Resultado conferido": "NÃO" if pendente else "SIM",
+            "Melhor acerto": melhor,
+            "Média de acertos": media,
+            "Status": status,
+        })
+    return pd.DataFrame(registros, columns=colunas).sort_values("Data da geração", ascending=False).reset_index(drop=True)
