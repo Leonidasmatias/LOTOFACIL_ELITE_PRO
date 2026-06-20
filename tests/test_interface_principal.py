@@ -46,7 +46,11 @@ class InterfacePrincipalTest(unittest.TestCase):
         ):
             self.assertIn(label, labels_metricas)
 
-        tabela = self.app.dataframe[-1].value
+        tabela = next(
+            tabela.value
+            for tabela in self.app.dataframe
+            if "Concurso Alvo" in tabela.value.columns
+        )
         self.assertEqual(
             tabela.columns.tolist(),
             ["Concurso Alvo", "Perfil", "Dezenas", "Score", "Status", "Acertos", "Desempenho"],

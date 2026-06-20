@@ -1,51 +1,78 @@
-# Lotofácil Elite Pro
+# Lotofácil Elite Pro — V2 Funcional
 
-Versão oficial candidata: `LOTOFACIL_ELITE_PRO_V1.1_GRATUITA`
+Aplicação Streamlit para análise histórica e **busca estatística pelos 15 acertos** da Lotofácil.
 
-Status: `PRODUÇÃO CANDIDATA`
+> A Lotofácil é um jogo aleatório. Este projeto não garante acertos, prêmio ou retorno financeiro. Use as análises como apoio estatístico e jogue com responsabilidade.
 
-Sistema independente inspirado na arquitetura do Mega-Sena Pro, adaptado para Lotofácil com interface pública simplificada e Motor Elite Lotofácil.
+## Recursos da V2
 
-Versão gratuita do Motor Elite, sem cobrança, e-mail, PIX, secrets obrigatórios ou bloqueio de acesso aos jogos.
+- Frequência histórica e janelas recentes de 10, 25, 50 e 100 concursos.
+- Atraso e presença das dezenas no último concurso.
+- Avaliação de soma, pares/ímpares, repetição, linhas e colunas 5x5.
+- Moldura, miolo e sequência máxima.
+- Penalidade para jogos muito parecidos e diversidade mínima da carteira.
+- Cinco perfis estatísticos com score final por jogo.
+- Ranking completo das 25 dezenas.
+- Backtest temporal por perfil, sem usar o resultado futuro na geração.
+- Taxas de 11+, 12+, 13+, 14+ e 15 acertos.
+- Salvamento, conferência e exportação CSV.
 
-## Recursos congelados nesta versão
+## Instalação
 
-- Motor Elite `ELITE_SCORE_V35_TEMPORAL`.
-- Cinco jogos inteligentes: Diamante, Ouro, Prata, Agressivo e Conservador.
-- Indicador `Potencial 15` em todos os jogos.
-- Salvamento e conferência de jogos.
-- Download CSV.
-- Acesso gratuito, sem PIX, e-mail ou cobrança.
-
-## Rodar localmente
-
-```powershell
-streamlit run app.py
-```
-
-Na página inicial, o Motor Elite oficial gera e exibe diretamente os cinco jogos. Cada card apresenta 15 dezenas e pode ser atualizado pelo botão `GERAR / ATUALIZAR OS 5 JOGOS`.
-
-Os jogos são apresentados como previsão estatística para o próximo sorteio, sem garantia de prêmio. A interface também exibe informações do motor, resumo estatístico da carteira e download da previsão atual.
-
-## Salvar e conferir jogos
-
-O botão `SALVAR JOGOS PARA CONFERÊNCIA` registra os cinco jogos atuais em:
-
-`exports/jogos_salvos_lotofacil.csv`
-
-Cada registro guarda data e hora, carteira, concurso alvo, perfil, dezenas, score, soma, pares, ímpares, status e acertos. O botão `CONFERIR JOGOS SALVOS` compara os registros com a base histórica: concursos ainda ausentes permanecem `PENDENTE`; concursos disponíveis passam para `CONFERIDO` com a quantidade de acertos.
-
-## Validação
+Requer Python 3.11 ou superior.
 
 ```powershell
-python -m unittest discover -s tests -v
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
 ```
 
-Motor oficial: `ELITE_SCORE_V35_TEMPORAL`
-Base histórica: `dados/lotofacil_historico.csv`
+## Executar localmente
 
-O aplicativo inicia diretamente por `app.py` na raiz. Nenhum secret ou variável de ambiente é obrigatório para o deploy.
+```powershell
+python -m streamlit run app.py
+```
 
-## Aviso
+O navegador abrirá normalmente em `http://localhost:8501`.
 
-A Lotofácil é aleatória. Este sistema faz análise estatística e não garante acerto, prêmio ou resultado.
+## Abas
+
+### Gerar Jogos
+
+Gera cinco jogos válidos e distintos, permite salvar a carteira e exportar os jogos em CSV.
+
+### Backtest
+
+Selecione a quantidade de concursos e execute a simulação. Para cada concurso, o motor recebe somente os concursos anteriores. O resumo apresenta média, melhor resultado e taxas por faixa e perfil. O relatório detalhado pode ser exportado em CSV.
+
+### Conferir Jogos
+
+Compara as carteiras salvas com os resultados existentes na base e atualiza a quantidade de acertos.
+
+### Ranking das Dezenas
+
+Mostra frequência histórica, frequência recente, atraso e score por perfil.
+
+### Configurações
+
+Permite ajustar soma, pares, repetição, sequência, diversidade e tamanho da busca de candidatos.
+
+## Atualizar dados
+
+Use o botão **ATUALIZAR BASE OFICIAL** na aba Configurações. Se a CAIXA estiver indisponível, o arquivo local é preservado.
+
+Base local:
+
+`dados/lotofacil_historico.csv`
+
+## Testes
+
+```powershell
+python -m pytest -q
+```
+
+Os testes cobrem motor, validade das dezenas, diversidade, ranking, backtest, jogos salvos e interface Streamlit.
+
+## Jogo responsável
+
+Não aumente apostas para recuperar perdas e não comprometa despesas essenciais. A V2 melhora o processo de análise; não altera a natureza aleatória do sorteio e não oferece garantia de prêmio.

@@ -8,7 +8,7 @@ from unicodedata import normalize
 import pandas as pd
 
 from .carregar_dados import COLUNAS_DEZENAS, RAIZ_PROJETO
-from .motor_elite_lotofacil import validar_jogos_producao
+from .validacao_jogos import validar_carteira
 
 
 CAMINHO_JOGOS_SALVOS = RAIZ_PROJETO / "exports" / "jogos_salvos_lotofacil.csv"
@@ -125,7 +125,13 @@ def salvar_carteira(
     caminho: Path = CAMINHO_JOGOS_SALVOS,
     data_hora: datetime | None = None,
 ) -> pd.DataFrame:
-    validar_jogos_producao(jogos)
+    colunas_bolas = [f"Bola{i}" for i in range(1, 16)]
+    faltantes = [coluna for coluna in colunas_bolas if coluna not in jogos.columns]
+    if faltantes:
+        raise ValueError(f"Carteira sem dezenas: {faltantes}")
+    validar_carteira(
+        ([int(row[coluna]) for coluna in colunas_bolas] for _, row in jogos.iterrows())
+    )
     instante = data_hora or datetime.now().astimezone()
     linhas = []
     for _, row in jogos.iterrows():
@@ -137,7 +143,7 @@ def salvar_carteira(
                 "Concurso Alvo": int(concurso_alvo),
                 "Perfil": str(row["Perfil"]),
                 "Dezenas": _formatar_dezenas(dezenas),
-                "Score": f'{float(row["Elite Score Temporal"]):.6f}',
+                "Score": f'{float(row.get("Score", row.get("Elite Score Temporal", 0.0))):.6f}',
                 "Soma": int(row["Soma"]),
                 "Pares": int(row["Pares"]),
                 "Impares": int(row["Impares"]),

@@ -11,8 +11,10 @@ from src.carregar_dados import (
     COLUNAS_DEZENAS,
     buscar_info_concurso_atual,
     carregar_base,
+    atualizar_base_local,
     resumo_base,
 )
+from src.backtest_lotofacil import executar_backtest
 from src.jogos_salvos import (
     CAMINHO_JOGOS_SALVOS,
     conferir_jogos_salvos,
@@ -21,15 +23,14 @@ from src.jogos_salvos import (
     salvar_carteira,
 )
 from src.motor_elite_lotofacil import (
-    MOTOR_OFICIAL_PRODUCAO,
     NOMES_JOGOS_PRODUCAO,
     assinatura_portfolio,
-    gerar_jogos_producao_v1,
-    validar_jogos_producao,
 )
+from src.motor_elite_v2 import MOTOR_ELITE_V2, gerar_jogos_v2, ranking_dezenas_v2
+from src.validacao_jogos import ConfiguracaoMotor, validar_carteira
 
 
-st.set_page_config(page_title="Lotofácil Elite Pro", page_icon="LF", layout="wide")
+st.set_page_config(page_title="Lotofácil Elite Pro V2", page_icon="LF", layout="wide")
 
 DESCRICOES_JOGOS = {
     "Diamante": "Busca dos 15 pelo maior score estatístico geral e ranking temporal.",
@@ -139,7 +140,10 @@ def normalizar_jogos_gerados(jogos: list[dict] | pd.DataFrame | None) -> pd.Data
         dados["Pares"] = pares
         dados["Ímpares"] = impares
         dados["Impares"] = impares
-        dados["Motor"] = str(dados.get("Motor") or MOTOR_OFICIAL_PRODUCAO)
+        dados["Repeticao anterior"] = int(
+            _numero(dados.get("Repeticao anterior", dados.get("Repetidas")), 0)
+        )
+        dados["Motor"] = str(dados.get("Motor") or MOTOR_ELITE_V2)
         dados["Estrategia"] = str(dados.get("Estrategia") or DESCRICOES_JOGOS.get(dados["Perfil"], ""))
         for posicao, dezena in enumerate(dezenas[:15], start=1):
             dados[f"Bola{posicao}"] = dezena
@@ -312,8 +316,8 @@ def render_header() -> None:
     st.markdown(
         f"""
         <div class="hero">
-            <h1>Lotofácil Elite Pro</h1>
-            <div class="hero-sub">Versão gratuita • Análise estatística sem garantia de prêmio</div>
+            <h1>Lotofácil Elite Pro V2</h1>
+            <div class="hero-sub">V2 Funcional • Versão gratuita • Análise estatística sem garantia de prêmio</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -387,7 +391,7 @@ def montar_html_motor(df: pd.DataFrame, meta: dict) -> str:
     ultimo_concurso = int(df["Concurso"].max()) if not df.empty else "-"
     return (
         '<section class="engine-panel">'
-        f'<div class="engine-item"><div class="engine-label">Motor</div><div class="engine-value">{MOTOR_OFICIAL_PRODUCAO}</div></div>'
+        f'<div class="engine-item"><div class="engine-label">Motor</div><div class="engine-value">{MOTOR_ELITE_V2} · evolução do ELITE_SCORE_V35_TEMPORAL</div></div>'
         f'<div class="engine-item"><div class="engine-label">Base histórica</div><div class="engine-value">dados/{CAMINHO_BASE_PADRAO.name}</div></div>'
         f'<div class="engine-item"><div class="engine-label">Último concurso carregado</div><div class="engine-value">{ultimo_concurso}</div></div>'
         f'<div class="engine-item"><div class="engine-label">Próximo concurso estimado</div><div class="engine-value">{meta["concurso_alvo"]}</div></div>'
@@ -520,7 +524,7 @@ def render_conferencia(df: pd.DataFrame) -> None:
     )
 
 
-def render_resultado(df: pd.DataFrame, meta: dict) -> None:
+def render_resultado(df: pd.DataFrame, meta: dict, configuracao: ConfiguracaoMotor | None = None) -> None:
     st.markdown(
         '<div class="free-analysis-intro"><strong>Previsão estatística para o próximo sorteio.</strong><br>'
         'Números sugeridos pelo Motor Elite a partir da base histórica da Lotofácil.<br>'
@@ -545,17 +549,16 @@ def render_resultado(df: pd.DataFrame, meta: dict) -> None:
         if atualizar or not isinstance(st.session_state.get("elite_generated_games"), pd.DataFrame):
             st.session_state.elite_generation_counter += 1
             semente = time.time_ns() ^ (st.session_state.elite_generation_counter * 1_000_003)
-            jogos_gerados = gerar_jogos_producao_v1(
-                df,
-                semente=semente,
-                assinatura_anterior=st.session_state.get("last_elite_portfolio_signature"),
-            )
+            jogos_gerados = gerar_jogos_v2(df, configuracao=configuracao, semente=semente)
             jogos_gerados = normalizar_jogos_gerados(jogos_gerados)
             st.session_state.elite_generated_games = jogos_gerados
             st.session_state.last_elite_portfolio_signature = assinatura_portfolio(jogos_gerados)
         st.session_state.jogos_elite_principais = st.session_state.elite_generated_games
         jogos = normalizar_jogos_gerados(st.session_state.jogos_elite_principais)
-        validar_jogos_producao(jogos)
+        validar_carteira(
+            ([int(row[f"Bola{i}"]) for i in range(1, 16)] for _, row in jogos.iterrows()),
+            configuracao,
+        )
     except Exception as erro:
         st.error(f"Nao foi possivel gerar os 5 jogos inteligentes: {erro}")
         return
@@ -597,7 +600,92 @@ def render_resultado(df: pd.DataFrame, meta: dict) -> None:
         width="stretch",
     )
     st.info("Análise estatística sem garantia de prêmio. Não há garantia de prêmio. A Lotofácil é aleatória, e o sistema trabalha com análise estatística da base histórica.")
-    render_conferencia(df)
+
+
+def configuracao_atual() -> ConfiguracaoMotor:
+    return ConfiguracaoMotor(
+        soma_minima=int(st.session_state.get("cfg_soma_min", 165)),
+        soma_maxima=int(st.session_state.get("cfg_soma_max", 225)),
+        pares_minimo=int(st.session_state.get("cfg_pares_min", 6)),
+        pares_maximo=int(st.session_state.get("cfg_pares_max", 9)),
+        repetidas_minimo=int(st.session_state.get("cfg_repetidas_min", 7)),
+        repetidas_maximo=int(st.session_state.get("cfg_repetidas_max", 12)),
+        sequencia_maxima=int(st.session_state.get("cfg_sequencia", 7)),
+        diferenca_minima_entre_jogos=int(st.session_state.get("cfg_diversidade", 3)),
+        candidatos_por_perfil=int(st.session_state.get("cfg_candidatos", 700)),
+    )
+
+
+def render_backtest(df: pd.DataFrame) -> None:
+    st.subheader("Backtest histórico sem vazamento temporal")
+    st.caption("Cada concurso é simulado usando somente os resultados anteriores a ele.")
+    quantidade = st.slider("Concursos para simular", 10, min(300, max(10, len(df) - 100)), 50, 10)
+    if st.button("EXECUTAR BACKTEST", type="primary", width="stretch"):
+        with st.spinner("Simulando concursos históricos..."):
+            st.session_state.backtest_v2 = executar_backtest(
+                df,
+                quantidade_concursos=quantidade,
+                configuracao=configuracao_atual(),
+                candidatos_por_perfil=min(300, configuracao_atual().candidatos_por_perfil),
+            )
+    resultado = st.session_state.get("backtest_v2")
+    if resultado is None:
+        st.info("Execute o backtest para medir 11+, 12+, 13+, 14+ e 15 acertos por perfil.")
+        return
+    st.success(f"Melhor perfil na amostra: {resultado.melhor_perfil}")
+    st.dataframe(resultado.resumo_perfis, hide_index=True, width="stretch")
+    st.dataframe(resultado.detalhes.tail(250), hide_index=True, width="stretch")
+    st.download_button(
+        "EXPORTAR RELATÓRIO DE BACKTEST CSV",
+        resultado.csv_bytes(),
+        "backtest_lotofacil_v2_funcional.csv",
+        "text/csv",
+        width="stretch",
+    )
+
+
+def render_ranking(df: pd.DataFrame) -> None:
+    st.subheader("Ranking das Dezenas")
+    perfil = st.selectbox("Perfil estatístico", NOMES_JOGOS_PRODUCAO)
+    ranking = ranking_dezenas_v2(df, perfil)
+    st.bar_chart(ranking.head(15).set_index("Dezena")["Score da dezena"])
+    st.dataframe(ranking, hide_index=True, width="stretch")
+    st.download_button(
+        "EXPORTAR RANKING CSV",
+        ranking.to_csv(index=False).encode("utf-8-sig"),
+        "ranking_dezenas_lotofacil_v2.csv",
+        "text/csv",
+        width="stretch",
+    )
+
+
+def render_configuracoes() -> None:
+    st.subheader("Configurações do Motor Elite V2")
+    coluna_a, coluna_b = st.columns(2)
+    with coluna_a:
+        st.number_input("Soma mínima", 100, 250, 165, key="cfg_soma_min")
+        st.number_input("Pares mínimo", 0, 15, 6, key="cfg_pares_min")
+        st.number_input("Repetidas do último — mínimo", 0, 15, 7, key="cfg_repetidas_min")
+        st.number_input("Diferença mínima entre jogos", 1, 10, 3, key="cfg_diversidade")
+    with coluna_b:
+        st.number_input("Soma máxima", 100, 300, 225, key="cfg_soma_max")
+        st.number_input("Pares máximo", 0, 15, 9, key="cfg_pares_max")
+        st.number_input("Repetidas do último — máximo", 0, 15, 12, key="cfg_repetidas_max")
+        st.number_input("Sequência máxima", 2, 15, 7, key="cfg_sequencia")
+    st.slider("Candidatos analisados por perfil", 100, 2000, 700, 100, key="cfg_candidatos")
+    try:
+        configuracao_atual().validar()
+        st.success("Configuração válida.")
+    except ValueError as erro:
+        st.error(str(erro))
+    if st.button("ATUALIZAR BASE OFICIAL", width="stretch"):
+        with st.spinner("Consultando dados oficiais..."):
+            if atualizar_base_local():
+                st.cache_data.clear()
+                st.success("Base histórica atualizada com sucesso.")
+            else:
+                st.warning("Não foi possível atualizar agora. A base local foi preservada.")
+    st.info("Jogue com responsabilidade. A busca estatística pelos 15 acertos não garante prêmio.")
 
 
 def main() -> None:
@@ -607,7 +695,17 @@ def main() -> None:
     meta = metadados_publicos(df)
     render_card_publico(df, meta)
 
-    render_resultado(df, meta)
+    abas = st.tabs(["Gerar Jogos", "Backtest", "Conferir Jogos", "Ranking das Dezenas", "Configurações"])
+    with abas[0]:
+        render_resultado(df, meta, configuracao_atual())
+    with abas[1]:
+        render_backtest(df)
+    with abas[2]:
+        render_conferencia(df)
+    with abas[3]:
+        render_ranking(df)
+    with abas[4]:
+        render_configuracoes()
 
 if __name__ == "__main__":
     main()
