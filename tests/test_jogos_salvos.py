@@ -16,6 +16,8 @@ from src.jogos_salvos import (
     salvar_carteira,
 )
 from src.motor_elite_lotofacil import gerar_jogos_producao_v1
+from src.motor_elite_v2 import gerar_jogos_v2
+from src.validacao_jogos import ConfiguracaoMotor
 
 
 class JogosSalvosTest(unittest.TestCase):
@@ -41,6 +43,19 @@ class JogosSalvosTest(unittest.TestCase):
             self.assertTrue((salvos["Acertos"] == "0").all())
             self.assertTrue(all(len(valor.split("-")) == 15 for valor in salvos["Dezenas"]))
             self.assertTrue(all(" " not in valor for valor in salvos["Dezenas"]))
+
+    def test_salva_saida_nativa_do_motor_v2(self) -> None:
+        jogos_v2 = gerar_jogos_v2(
+            self.base,
+            configuracao=ConfiguracaoMotor(candidatos_por_perfil=100),
+            semente=20260620,
+        )
+        with TemporaryDirectory() as pasta:
+            caminho = Path(pasta) / "jogos_v2.csv"
+            salvar_carteira(jogos_v2, 1, 999999, caminho)
+            salvos = ler_jogos_salvos(caminho)
+            self.assertEqual(len(salvos), 5)
+            self.assertTrue((salvos["Impares"].astype(int).between(6, 9)).all())
 
     def test_conferencia_mantem_concurso_futuro_pendente(self) -> None:
         with TemporaryDirectory() as pasta:

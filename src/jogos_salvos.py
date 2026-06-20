@@ -146,7 +146,7 @@ def salvar_carteira(
                 "Score": f'{float(row.get("Score", row.get("Elite Score Temporal", 0.0))):.6f}',
                 "Soma": int(row["Soma"]),
                 "Pares": int(row["Pares"]),
-                "Impares": int(row["Impares"]),
+                "Impares": int(row.get("Impares", row.get("Ímpares", 0))),
                 "Status": "PENDENTE",
                 "Acertos": "0",
             }
