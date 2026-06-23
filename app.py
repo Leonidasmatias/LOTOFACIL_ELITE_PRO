@@ -274,10 +274,14 @@ def aplicar_css() -> None:
         .premiacao-card { padding:24px; border-top:4px solid #E879F9; }
         .premiacao-card h3 { color:#E879F9; margin:0 0 14px; font-size:24px; font-weight:950; }
         .premio-row {
-            display:flex; justify-content:space-between; gap:12px; padding:10px 0;
-            border-bottom:1px solid rgba(255,255,255,.1); color:rgba(255,255,255,.75); font-weight:850;
+            display:grid; grid-template-columns:minmax(96px,.8fr) minmax(150px,1.2fr); gap:18px;
+            align-items:center; padding:12px 0; border-bottom:1px solid rgba(255,255,255,.1);
         }
         .premio-row:last-child { border-bottom:0; }
+        .premio-faixa { color:rgba(255,255,255,.78); font-size:15px; font-weight:900; }
+        .premio-detalhes { display:flex; flex-direction:column; align-items:flex-end; gap:3px; text-align:right; }
+        .premio-ganhadores { color:#A5F3FC; font-size:13px; font-weight:800; }
+        .premio-valor { color:#fff; font-size:17px; font-weight:950; white-space:nowrap; }
         [data-testid="stAlert"] { border:1px solid rgba(255,215,0,.25); border-radius:16px; background:rgba(255,215,0,.08); color:#fff; }
         .balls { display:flex; gap:8px; flex-wrap:wrap; justify-content:center; margin:12px 0; }
         .ball {
@@ -350,6 +354,9 @@ def aplicar_css() -> None:
             .hero h1 { font-size:32px; }
             .oficial-shell { grid-template-columns:1fr; }
             .public-concurso { font-size:25px; }
+            .premiacao-card { padding:20px; }
+            .premio-row { grid-template-columns:minmax(84px,.75fr) minmax(138px,1.25fr); gap:10px; }
+            .premio-valor { font-size:15px; }
             .public-prize { font-size:27px; }
             .lotofacil-dezena { min-height:46px; font-size:21px; }
             .elite-results { padding:18px 14px; }
@@ -401,8 +408,19 @@ def render_card_publico(df: pd.DataFrame, meta: dict) -> None:
         faixa = rateio.get(acertos, {})
         valor = formatar_moeda(faixa.get("valor")) if faixa else "Aguardando"
         ganhadores = faixa.get("ganhadores") if faixa else None
-        complemento = f"<small>{ganhadores} ganhador(es)</small>" if ganhadores is not None else ""
-        linhas_premiacao.append(f'<div class="premio-row"><span>{acertos} acertos</span><span>{valor}{complemento}</span></div>')
+        if ganhadores is None:
+            texto_ganhadores = "Rateio não publicado"
+        else:
+            quantidade = f"{int(ganhadores):,}".replace(",", ".")
+            texto_ganhadores = f"{quantidade} {'ganhador' if int(ganhadores) == 1 else 'ganhadores'}"
+        linhas_premiacao.append(
+            '<div class="premio-row">'
+            f'<span class="premio-faixa">{acertos} acertos</span>'
+            '<span class="premio-detalhes">'
+            f'<span class="premio-ganhadores">{texto_ganhadores}</span>'
+            f'<strong class="premio-valor">{valor}</strong>'
+            '</span></div>'
+        )
     texto_premiacao = (
         f"Premiação oficial do concurso {ultimo_concurso}."
         if rateio

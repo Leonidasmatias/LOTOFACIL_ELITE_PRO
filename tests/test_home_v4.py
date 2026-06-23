@@ -89,6 +89,9 @@ def test_card_renderiza_premiacao_oficial_disponivel(monkeypatch) -> None:
             "premiacao_resultado": {
                 15: {"valor": 1_000_000, "ganhadores": 1},
                 14: {"valor": 2_106.09, "ganhadores": 215},
+                13: {"valor": 35, "ganhadores": 15_058},
+                12: {"valor": 14, "ganhadores": 183_851},
+                11: {"valor": 7, "ganhadores": 946_867},
             },
         },
     )
@@ -96,7 +99,13 @@ def test_card_renderiza_premiacao_oficial_disponivel(monkeypatch) -> None:
     assert "Premiação oficial do concurso 120" in html
     assert "R$ 1.000.000,00" in html
     assert "R$ 2.106,09" in html
-    assert "215 ganhador(es)" in html
+    assert '<span class="premio-faixa">15 acertos</span>' in html
+    assert '<span class="premio-ganhadores">1 ganhador</span>' in html
+    assert '<strong class="premio-valor">R$ 1.000.000,00</strong>' in html
+    assert "215 ganhadores" in html
+    assert "15.058 ganhadores" in html
+    assert "183.851 ganhadores" in html
+    assert "946.867 ganhadores" in html
 
 
 def test_api_normaliza_rateio_oficial(monkeypatch) -> None:
