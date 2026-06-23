@@ -10,6 +10,7 @@ import streamlit as st
 from src.carregar_dados import (
     CAMINHO_BASE_PADRAO,
     COLUNAS_DEZENAS,
+    buscar_info_concurso,
     buscar_info_concurso_atual,
     carregar_base,
     atualizar_base_local,
@@ -69,17 +70,23 @@ TITULOS_JOGOS = {
 }
 
 
-@st.cache_data(ttl=1800)
+@st.cache_data(ttl=300)
 def info_caixa_cached() -> dict:
     info = buscar_info_concurso_atual()
     return info if isinstance(info, dict) else {}
 
 
-@st.cache_data(ttl=1800, show_spinner=False)
+@st.cache_data(ttl=300, show_spinner=False)
 def sincronizar_base_automatica_cached(ultimo_local: int, concurso_oficial: int) -> bool:
     if concurso_oficial <= ultimo_local:
         return False
     return atualizar_base_local()
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def info_resultado_cached(concurso: int) -> dict:
+    info = buscar_info_concurso(concurso)
+    return info if isinstance(info, dict) else {}
 
 
 def formatar_moeda(valor: object) -> str:
@@ -91,26 +98,38 @@ def formatar_moeda(valor: object) -> str:
     return f"R$ {numero:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
 
-def metadados_publicos(df: pd.DataFrame, info: dict | None = None) -> dict:
+def metadados_publicos(
+    df: pd.DataFrame,
+    info: dict | None = None,
+    info_resultado: dict | None = None,
+) -> dict:
     info = info if isinstance(info, dict) else info_caixa_cached()
     resumo = resumo_base(df)
     ultimo_local = resumo["ultimo_concurso"]
+    info_resultado = info_resultado if isinstance(info_resultado, dict) else info
     try:
         concurso_oficial = int(info.get("concurso_atual"))
     except (TypeError, ValueError):
         concurso_oficial = 0
+    try:
+        concurso_rateio = int(info_resultado.get("concurso_atual"))
+    except (TypeError, ValueError):
+        concurso_rateio = 0
     base_sincronizada = bool(ultimo_local and concurso_oficial == ultimo_local)
-    concurso = info.get("proximo_concurso") if base_sincronizada else ultimo_local + 1
-    data = info.get("data_proximo_concurso") if base_sincronizada else None
-    premio = formatar_moeda(info.get("premio_estimado")) if base_sincronizada else "Consultar CAIXA"
+    resultado_sincronizado = bool(ultimo_local and concurso_rateio == ultimo_local)
+    referencia_proximo = info_resultado if resultado_sincronizado else (info if base_sincronizada else {})
+    concurso = referencia_proximo.get("proximo_concurso") or ultimo_local + 1
+    data = referencia_proximo.get("data_proximo_concurso")
+    premio = formatar_moeda(referencia_proximo.get("premio_estimado"))
     return {
         "concurso_alvo": concurso,
         "data_sorteio": data or "Aguardando CAIXA",
         "premio_estimado": premio,
-        "premiacao_resultado": info.get("premiacao_resultado", {}) if base_sincronizada else {},
+        "premiacao_resultado": info_resultado.get("premiacao_resultado", {}) if resultado_sincronizado else {},
         "base_sincronizada": base_sincronizada,
-        "acumulou": info.get("acumulou"),
-        "fonte": info.get("fonte", "fallback_local") if base_sincronizada else "base_local_validada",
+        "resultado_sincronizado": resultado_sincronizado,
+        "acumulou": info_resultado.get("acumulou") if resultado_sincronizado else None,
+        "fonte": info_resultado.get("fonte", "fallback_local") if resultado_sincronizado else "base_local_validada",
     }
 
 
@@ -1002,7 +1021,8 @@ def main() -> None:
             f"Novo concurso {concurso_oficial} identificado, mas a atualização não foi concluída. "
             "A base local anterior foi preservada."
         )
-    meta = metadados_publicos(df, info)
+    info_resultado = info_resultado_cached(ultimo_validado) if ultimo_validado else {}
+    meta = metadados_publicos(df, info, info_resultado)
     render_card_publico(df, meta)
 
     abas = st.tabs(["Gerar Jogos", "Estratégia Inteligente", "Laboratório Estatístico", "Backtest", "Conferir Jogos", "Ranking das Dezenas", "Configurações"])

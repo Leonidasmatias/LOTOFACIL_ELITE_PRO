@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import json
 import os
 from pathlib import Path
 import shutil
@@ -12,6 +13,7 @@ import pandas as pd
 
 RAIZ_PROJETO = Path(__file__).resolve().parents[1]
 CAMINHO_BASE_EMBUTIDA = RAIZ_PROJETO / "dados" / "lotofacil_historico.csv"
+CAMINHO_METADADOS_OFICIAIS = RAIZ_PROJETO / "dados" / "metadados_oficiais_lotofacil.json"
 DIRETORIO_DADOS = Path(os.getenv("LOTOFACIL_DATA_DIR", RAIZ_PROJETO / "dados"))
 CAMINHO_BASE_PADRAO = Path(os.getenv("LOTOFACIL_BASE_PATH", DIRETORIO_DADOS / "lotofacil_historico.csv"))
 API_CAIXA_LOTOFACIL_URL = "https://servicebus2.caixa.gov.br/portaldeloterias/api/lotofacil"
@@ -140,8 +142,8 @@ def carregar_base(caminho: Path = CAMINHO_BASE_PADRAO) -> pd.DataFrame:
     return validar_base(pd.read_csv(caminho, encoding="utf-8-sig"))
 
 
-def buscar_info_concurso_atual() -> dict:
-    fallback = {
+def _info_fallback() -> dict:
+    return {
         "fonte": "fallback_local",
         "concurso_atual": None,
         "data_concurso_atual": None,
@@ -151,11 +153,10 @@ def buscar_info_concurso_atual() -> dict:
         "premiacao_resultado": {},
         "acumulou": None,
     }
-    try:
-        dados = _abrir_url_json(API_CAIXA_LOTOFACIL_URL)
-    except ERROS_REDE:
-        return fallback
 
+
+def _normalizar_info_api(dados: dict) -> dict:
+    fallback = _info_fallback()
     proximo = dados.get("numeroConcursoProximo") or dados.get("numero")
     try:
         proximo = int(proximo) + (0 if dados.get("numeroConcursoProximo") else 1)
@@ -184,6 +185,35 @@ def buscar_info_concurso_atual() -> dict:
         "premiacao_resultado": premiacao,
         "acumulou": bool(dados.get("acumulado")),
     }
+
+
+def _buscar_metadado_publicado(concurso: int) -> dict:
+    try:
+        registros = json.loads(CAMINHO_METADADOS_OFICIAIS.read_text(encoding="utf-8"))
+        dados = registros.get(str(int(concurso)), {})
+        if not dados:
+            return _info_fallback()
+        info = _normalizar_info_api(dados)
+        info["fonte"] = "CAIXA_CACHE_PUBLICADO"
+        return info
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        return _info_fallback()
+
+
+def buscar_info_concurso(concurso: int) -> dict:
+    try:
+        dados = _abrir_url_json(f"{API_CAIXA_LOTOFACIL_URL}/{int(concurso)}")
+        return _normalizar_info_api(dados)
+    except ERROS_REDE:
+        return _buscar_metadado_publicado(concurso)
+
+
+def buscar_info_concurso_atual() -> dict:
+    try:
+        dados = _abrir_url_json(API_CAIXA_LOTOFACIL_URL)
+    except ERROS_REDE:
+        return _info_fallback()
+    return _normalizar_info_api(dados)
 
 
 def baixar_base_oficial_completa() -> pd.DataFrame:

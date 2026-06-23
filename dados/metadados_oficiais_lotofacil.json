@@ -1,0 +1,17 @@
+{
+  "3716": {
+    "numero": 3716,
+    "dataApuracao": "20/06/2026",
+    "numeroConcursoProximo": 3717,
+    "dataProximoConcurso": "22/06/2026",
+    "valorEstimadoProximoConcurso": 5000000.0,
+    "acumulado": true,
+    "listaRateioPremio": [
+      {"faixa": 1, "numeroDeGanhadores": 0, "valorPremio": 0.0},
+      {"faixa": 2, "numeroDeGanhadores": 215, "valorPremio": 2106.09},
+      {"faixa": 3, "numeroDeGanhadores": 6708, "valorPremio": 35.0},
+      {"faixa": 4, "numeroDeGanhadores": 89764, "valorPremio": 14.0},
+      {"faixa": 5, "numeroDeGanhadores": 476277, "valorPremio": 7.0}
+    ]
+  }
+}

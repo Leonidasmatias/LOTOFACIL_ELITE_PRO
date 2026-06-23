@@ -47,6 +47,36 @@ def test_home_exibe_metadados_e_rateio_quando_base_esta_sincronizada() -> None:
     assert meta["premio_estimado"] == "R$ 2.000.000,00"
 
 
+def test_home_separa_proximo_concurso_do_rateio_do_ultimo_resultado() -> None:
+    rateio_3716 = {15: {"valor": 0, "ganhadores": 0}, 14: {"valor": 2106.09, "ganhadores": 215}}
+    meta = app.metadados_publicos(
+        _base(3716),
+        {
+            "fonte": "CAIXA",
+            "concurso_atual": 3717,
+            "proximo_concurso": 3718,
+            "data_proximo_concurso": "23/06/2026",
+            "premio_estimado": 2_000_000,
+            "premiacao_resultado": {},
+        },
+        {
+            "fonte": "CAIXA",
+            "concurso_atual": 3716,
+            "proximo_concurso": 3717,
+            "data_proximo_concurso": "22/06/2026",
+            "premio_estimado": 5_000_000,
+            "premiacao_resultado": rateio_3716,
+            "acumulou": True,
+        },
+    )
+    assert meta["concurso_alvo"] == 3717
+    assert meta["data_sorteio"] == "22/06/2026"
+    assert meta["premio_estimado"] == "R$ 5.000.000,00"
+    assert meta["premiacao_resultado"] == rateio_3716
+    assert meta["resultado_sincronizado"] is True
+    assert meta["base_sincronizada"] is False
+
+
 def test_card_renderiza_premiacao_oficial_disponivel(monkeypatch) -> None:
     conteudos = []
     monkeypatch.setattr(app.st, "markdown", lambda conteudo, **_kwargs: conteudos.append(conteudo))
@@ -88,6 +118,19 @@ def test_api_normaliza_rateio_oficial(monkeypatch) -> None:
     info = carregar_dados.buscar_info_concurso_atual()
     assert info["premiacao_resultado"][15]["valor"] == 1_000_000
     assert info["premiacao_resultado"][11]["ganhadores"] == 1000
+
+
+def test_rateio_publicado_preserva_3716_quando_api_falha(monkeypatch) -> None:
+    monkeypatch.setattr(
+        carregar_dados,
+        "_abrir_url_json",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("egress indisponivel")),
+    )
+    info = carregar_dados.buscar_info_concurso(3716)
+    assert info["fonte"] == "CAIXA_CACHE_PUBLICADO"
+    assert info["concurso_atual"] == 3716
+    assert info["proximo_concurso"] == 3717
+    assert info["premiacao_resultado"][14] == {"valor": 2106.09, "ganhadores": 215}
 
 
 def test_download_valido_porem_atrasado_recebe_concursos_ausentes(monkeypatch) -> None:
