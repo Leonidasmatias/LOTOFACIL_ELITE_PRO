@@ -1,80 +1,127 @@
-# Lotofácil Elite Pro — V4 Laboratório Estatístico
+# Lotofácil Elite Pro — V5 Inteligência de Dezenas
 
-Aplicação Streamlit para medir estratégias e apoiar a **busca estatística pelos 15 acertos** da Lotofácil.
+Aplicação Streamlit para medir estratégias estatísticas da Lotofácil e apoiar estudos históricos sobre combinações de 15 dezenas.
 
 > A Lotofácil é aleatória. O sistema não garante acertos, prêmio ou retorno financeiro. Resultados históricos e valores simulados não representam promessa de desempenho futuro. Jogue com responsabilidade.
 
-## V4 Laboratório Estatístico
+## V5 — Inteligência de Dezenas
 
-A nova aba **Laboratório Estatístico** executa cinco estratégias sob as mesmas condições:
+- Ranking das dezenas nos últimos 20, 50, 100 e 200 concursos.
+- Painéis de dezenas quentes, frias, atrasadas e repetidas.
+- Histórico automático de todas as carteiras geradas em SQLite.
+- Migração idempotente do histórico CSV existente.
+- Atualização automática e defensiva da base oficial ao abrir o sistema.
+- Alerta visual persistente quando um novo concurso é detectado.
+- Rodapé institucional Leonidas Tech — Conectando o Futuro.
+- Configuração completa para Railway com volume persistente.
 
-- Motor Elite.
-- Aleatório puro.
-- Dezenas quentes.
-- Dezenas frias.
-- Híbrido quente/frio.
+Deploy externo: consulte `README_DEPLOY_RAILWAY.md`.
 
-Cada concurso avaliado utiliza exclusivamente os concursos anteriores. Todas as estratégias recebem a mesma quantidade de jogos e são comparadas pelas taxas de 11+, 12+, 13+, 14+ e 15 acertos.
+## V4 — Laboratório Estatístico
 
-O painel mostra a melhor estratégia em cada métrica. Isso permite identificar vantagem ou desvantagem histórica sem transformar correlação em garantia.
+A aba **Laboratório Estatístico** executa cinco estratégias sob as mesmas condições:
+
+1. Motor Elite
+2. Aleatório puro
+3. Dezenas quentes
+4. Dezenas frias
+5. Híbrido quente/frio
+
+Cada concurso avaliado usa exclusivamente concursos anteriores, evitando qualquer vazamento de dados futuros.
+
+Todas as estratégias recebem:
+
+- A mesma quantidade de concursos avaliados
+- A mesma quantidade de jogos por concurso
+- Comparação pelas taxas de 11+, 12+, 13+, 14+ e 15 acertos
+
+O painel exibe:
+
+- Melhor estratégia por métrica
+- Melhor acerto
+- Média de acertos
+- Taxas de 11+, 12+, 13+, 14+ e 15 acertos
 
 ## ROI simulado
 
 O laboratório calcula:
 
-- Valor unitário configurável.
-- Total apostado na simulação.
-- Retorno estimado por faixa de premiação.
-- Saldo simulado.
-- ROI percentual.
+- Valor unitário configurável
+- Total apostado
+- Retorno estimado por faixa de premiação
+- Saldo simulado
+- ROI percentual
 
-Todos os prêmios são valores editáveis usados somente para simulação. Confirme os valores oficiais antes de qualquer decisão. O ROI exibido não é garantido.
+Os valores de premiação são editáveis na interface e usados apenas para simulação.
+
+> Confirme sempre os valores oficiais antes de qualquer decisão. O ROI exibido não é garantido.
 
 ## Heatmap 5×5
 
-A cartela visual das 25 dezenas pode exibir:
+A visualização mantém a posição real das dezenas de 1 a 25 na cartela da Lotofácil e permite consultar:
 
-- Frequência histórica.
-- Frequência recente.
-- Atraso.
-- Score V3.
-
-O heatmap mantém a posição real de cada dezena na grade 5×5 da Lotofácil.
+- Frequência histórica
+- Frequência recente
+- Atraso
+- Score V3
 
 ## Descoberta automática de padrões
 
 Cada jogo simulado é classificado por:
 
-- Faixa de soma.
-- Pares/ímpares.
-- Repetição do concurso anterior.
-- Moldura/miolo.
-- Sequência máxima.
-- Distribuição por linhas e colunas.
+- Faixa de soma
+- Pares/ímpares
+- Repetição do concurso anterior
+- Moldura/miolo
+- Sequência máxima
+- Distribuição por linhas
+- Distribuição por colunas
 
-O laboratório mede média de acertos e taxas de 13+ e 14+ por padrão. Grupos abaixo da amostra mínima são descartados para reduzir conclusões frágeis.
+O laboratório mede por padrão:
+
+- Média de acertos
+- Taxa de 13+
+- Taxa de 14+
+
+A amostra mínima é configurável na interface. Grupos abaixo dela são descartados para reduzir conclusões frágeis.
 
 ## Banco histórico de estratégias
 
-Cada execução concluída registra em CSV:
+Cada execução concluída registra os resultados em:
 
-- Data e estratégia.
-- Concursos avaliados.
-- Quantidade de jogos.
-- Melhor acerto e média.
-- ROI simulado e status.
+```text
+exports/historico_laboratorio_v4.csv
+```
 
-Arquivo local: `exports/historico_laboratorio_v4.csv`.
+Campos registrados:
+
+- Data/hora da execução
+- Estratégia
+- Concursos avaliados
+- Quantidade de jogos
+- Melhor acerto
+- Média de acertos
+- ROI simulado
+- Status
 
 ## Recursos anteriores preservados
 
-- Estratégia Inteligente e relatório diário CSV/TXT.
-- Carteiras configuráveis de 5, 10, 20 ou 30 jogos.
-- Comparador Motor Elite × aleatório.
-- Ranking das dezenas.
-- Histórico e conferência de carteiras.
-- Backtest temporal sem vazamento futuro.
-- Atualização defensiva da base oficial.
+- Estratégia Inteligente
+- Relatório diário CSV/TXT
+- Carteiras configuráveis de 5, 10, 20 ou 30 jogos
+- Comparador Motor Elite × Aleatório
+- Ranking das dezenas
+- Histórico e conferência de carteiras
+- Backtest temporal sem vazamento futuro
+- Atualização defensiva da base oficial
+
+## Base histórica
+
+```text
+dados/lotofacil_historico.csv
+```
+
+Use **ATUALIZAR BASE OFICIAL** na aba Configurações. A atualização é atômica: se a consulta, gravação ou validação falhar, a base local é preservada.
 
 ## Instalação
 
@@ -92,13 +139,7 @@ python -m pip install -r requirements.txt
 python -m streamlit run app.py
 ```
 
-Acesso padrão: `http://localhost:8501`.
-
-## Atualizar dados
-
-Use **ATUALIZAR BASE OFICIAL** em Configurações. Se a consulta falhar, a base local é preservada.
-
-Base histórica: `dados/lotofacil_historico.csv`.
+Acesso padrão: [http://localhost:8501](http://localhost:8501).
 
 ## Testes
 
@@ -106,8 +147,21 @@ Base histórica: `dados/lotofacil_historico.csv`.
 python -m pytest -q
 ```
 
-Os testes cobrem as cinco estratégias, ROI, heatmap, padrões, banco histórico, carteiras válidas, exports, interface e ausência de vazamento temporal.
+Os testes cobrem:
+
+- Cinco estratégias
+- ROI simulado
+- Heatmap 5×5
+- Descoberta de padrões
+- Banco histórico CSV
+- Carteiras válidas
+- Exports
+- Interface Streamlit
+- Ausência de vazamento temporal
+- Preservação da base local em caso de falha
 
 ## Jogo responsável
 
-Não comprometa despesas essenciais nem aumente apostas para recuperar perdas. A V4 é um laboratório de medição estatística; ela não altera a natureza aleatória do sorteio e não oferece garantia de prêmio.
+Não comprometa despesas essenciais nem aumente apostas para recuperar perdas.
+
+A V4 é um laboratório de medição estatística. Ela não altera a natureza aleatória do sorteio e não oferece garantia de prêmio.

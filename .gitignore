@@ -5,5 +5,8 @@ __pycache__/
 exports/*.log
 exports/pagamentos.csv
 exports/historico_laboratorio_v4.csv
+dados/*.sqlite3
+dados/*.sqlite3-shm
+dados/*.sqlite3-wal
 backup/
 BACKUP_*/

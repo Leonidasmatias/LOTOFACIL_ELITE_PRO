@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import csv
+import os
 from pathlib import Path
+import shutil
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -9,7 +11,9 @@ import pandas as pd
 
 
 RAIZ_PROJETO = Path(__file__).resolve().parents[1]
-CAMINHO_BASE_PADRAO = RAIZ_PROJETO / "dados" / "lotofacil_historico.csv"
+CAMINHO_BASE_EMBUTIDA = RAIZ_PROJETO / "dados" / "lotofacil_historico.csv"
+DIRETORIO_DADOS = Path(os.getenv("LOTOFACIL_DATA_DIR", RAIZ_PROJETO / "dados"))
+CAMINHO_BASE_PADRAO = Path(os.getenv("LOTOFACIL_BASE_PATH", DIRETORIO_DADOS / "lotofacil_historico.csv"))
 API_CAIXA_LOTOFACIL_URL = "https://servicebus2.caixa.gov.br/portaldeloterias/api/lotofacil"
 DOWNLOAD_CAIXA_LOTOFACIL_URL = (
     "https://servicebus2.caixa.gov.br/portaldeloterias/api/resultados/download"
@@ -128,7 +132,11 @@ def validar_base(df: pd.DataFrame) -> pd.DataFrame:
 
 def carregar_base(caminho: Path = CAMINHO_BASE_PADRAO) -> pd.DataFrame:
     if not caminho.exists():
-        criar_base_inicial_desenvolvimento(caminho)
+        caminho.parent.mkdir(parents=True, exist_ok=True)
+        if CAMINHO_BASE_EMBUTIDA.exists() and caminho.resolve() != CAMINHO_BASE_EMBUTIDA.resolve():
+            shutil.copy2(CAMINHO_BASE_EMBUTIDA, caminho)
+        else:
+            criar_base_inicial_desenvolvimento(caminho)
     return validar_base(pd.read_csv(caminho, encoding="utf-8-sig"))
 
 
@@ -136,9 +144,11 @@ def buscar_info_concurso_atual() -> dict:
     fallback = {
         "fonte": "fallback_local",
         "concurso_atual": None,
+        "data_concurso_atual": None,
         "proximo_concurso": None,
         "data_proximo_concurso": None,
         "premio_estimado": "Consultar CAIXA",
+        "premiacao_resultado": {},
         "acumulou": None,
     }
     try:
@@ -151,48 +161,74 @@ def buscar_info_concurso_atual() -> dict:
         proximo = int(proximo) + (0 if dados.get("numeroConcursoProximo") else 1)
     except (TypeError, ValueError):
         proximo = None
+    premiacao = {}
+    for faixa in dados.get("listaRateioPremio") or []:
+        try:
+            numero_faixa = int(faixa.get("faixa"))
+        except (TypeError, ValueError, AttributeError):
+            continue
+        if numero_faixa not in {1, 2, 3, 4, 5}:
+            continue
+        premiacao[16 - numero_faixa] = {
+            "valor": faixa.get("valorPremio"),
+            "ganhadores": faixa.get("numeroDeGanhadores"),
+        }
     return {
         **fallback,
         "fonte": "CAIXA",
         "concurso_atual": dados.get("numero"),
+        "data_concurso_atual": dados.get("dataApuracao"),
         "proximo_concurso": proximo,
         "data_proximo_concurso": dados.get("dataProximoConcurso"),
         "premio_estimado": dados.get("valorEstimadoProximoConcurso") or "Consultar CAIXA",
+        "premiacao_resultado": premiacao,
         "acumulou": bool(dados.get("acumulado")),
     }
 
 
 def baixar_base_oficial_completa() -> pd.DataFrame:
+    ultimo = _abrir_url_json(API_CAIXA_LOTOFACIL_URL)
+    ultimo_concurso = int(ultimo["numero"])
     try:
         conteudo = _abrir_url_bytes(DOWNLOAD_CAIXA_LOTOFACIL_URL)
-        return _normalizar_base_oficial(_ler_tabela_download_caixa(conteudo))
+        base = _normalizar_base_oficial(_ler_tabela_download_caixa(conteudo))
     except Exception:
-        ultimo = _abrir_url_json(API_CAIXA_LOTOFACIL_URL)
-        ultimo_concurso = int(ultimo["numero"])
-        registros = []
-        for concurso in range(1, ultimo_concurso + 1):
-            resultado = _abrir_url_json(f"{API_CAIXA_LOTOFACIL_URL}/{concurso}", timeout=12)
-            dezenas = resultado.get("listaDezenas") or resultado.get("dezenasSorteadasOrdemSorteio")
-            if not dezenas or len(dezenas) < 15:
-                continue
-            linha = {"Concurso": resultado["numero"], "Data": resultado.get("dataApuracao", "")}
-            for i, dezena in enumerate(dezenas[:15], start=1):
-                linha[f"Bola{i}"] = int(dezena)
-            registros.append(linha)
-        if not registros:
-            raise ValueError("Nenhum concurso oficial retornado pela CAIXA.")
-        return validar_base(pd.DataFrame(registros))
+        base = carregar_base(CAMINHO_BASE_PADRAO) if CAMINHO_BASE_PADRAO.exists() else pd.DataFrame(columns=COLUNAS_OBRIGATORIAS)
+
+    ultimo_na_base = int(base["Concurso"].max()) if not base.empty else 0
+    if ultimo_na_base > ultimo_concurso:
+        raise ValueError("Base oficial retornou concurso anterior ao arquivo local.")
+
+    registros = []
+    for concurso in range(ultimo_na_base + 1, ultimo_concurso + 1):
+        resultado = _abrir_url_json(f"{API_CAIXA_LOTOFACIL_URL}/{concurso}", timeout=12)
+        dezenas = resultado.get("listaDezenas") or resultado.get("dezenasSorteadasOrdemSorteio")
+        if not dezenas or len(dezenas) < 15:
+            raise ValueError(f"Concurso oficial {concurso} sem as 15 dezenas esperadas.")
+        linha = {"Concurso": resultado["numero"], "Data": resultado.get("dataApuracao", "")}
+        for i, dezena in enumerate(dezenas[:15], start=1):
+            linha[f"Bola{i}"] = int(dezena)
+        registros.append(linha)
+
+    if registros:
+        base = pd.concat([base, pd.DataFrame(registros)], ignore_index=True)
+    base = validar_base(base)
+    if base.empty or int(base.iloc[-1]["Concurso"]) != ultimo_concurso:
+        raise ValueError("Base oficial incompleta; arquivo local preservado.")
+    return base
 
 
 def atualizar_base_local() -> bool:
+    temporario = CAMINHO_BASE_PADRAO.with_suffix(CAMINHO_BASE_PADRAO.suffix + ".tmp")
     try:
         dados = baixar_base_oficial_completa()
-    except ERROS_REDE:
-        return False
+        CAMINHO_BASE_PADRAO.parent.mkdir(parents=True, exist_ok=True)
+        dados.to_csv(temporario, index=False, encoding="utf-8-sig")
+        validar_base(pd.read_csv(temporario, encoding="utf-8-sig"))
+        temporario.replace(CAMINHO_BASE_PADRAO)
     except Exception:
+        temporario.unlink(missing_ok=True)
         return False
-    CAMINHO_BASE_PADRAO.parent.mkdir(parents=True, exist_ok=True)
-    dados.to_csv(CAMINHO_BASE_PADRAO, index=False, encoding="utf-8-sig")
     return True
 
 

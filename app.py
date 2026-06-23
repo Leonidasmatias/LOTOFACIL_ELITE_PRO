@@ -16,6 +16,16 @@ from src.carregar_dados import (
     resumo_base,
 )
 from src.backtest_lotofacil import executar_backtest_comparativo
+from src.analises_v5 import JANELAS_V5, paineis_tendencias_v5, ranking_janelas_v5
+from src.historico_sqlite import (
+    CAMINHO_BANCO_V5,
+    conferir_historico_sqlite,
+    inicializar_banco,
+    listar_historico_sqlite,
+    migrar_historico_csv,
+    registrar_concurso_visto,
+    salvar_carteira_sqlite,
+)
 from src.jogos_salvos import (
     CAMINHO_JOGOS_SALVOS,
     conferir_jogos_salvos,
@@ -40,7 +50,7 @@ from src.laboratorio_estatistico import (
 from src.validacao_jogos import ConfiguracaoMotor, validar_carteira
 
 
-st.set_page_config(page_title="Lotofácil Elite Pro V4", page_icon="LF", layout="wide")
+st.set_page_config(page_title="Lotofácil Elite Pro V5", page_icon="LF", layout="wide")
 
 DESCRICOES_JOGOS = {
     "Diamante": "Busca dos 15 pelo maior score estatístico geral e ranking temporal.",
@@ -65,6 +75,13 @@ def info_caixa_cached() -> dict:
     return info if isinstance(info, dict) else {}
 
 
+@st.cache_data(ttl=1800, show_spinner=False)
+def sincronizar_base_automatica_cached(ultimo_local: int, concurso_oficial: int) -> bool:
+    if concurso_oficial <= ultimo_local:
+        return False
+    return atualizar_base_local()
+
+
 def formatar_moeda(valor: object) -> str:
     try:
         numero = float(valor)
@@ -74,18 +91,26 @@ def formatar_moeda(valor: object) -> str:
     return f"R$ {numero:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
 
 
-def metadados_publicos(df: pd.DataFrame) -> dict:
-    info = info_caixa_cached()
+def metadados_publicos(df: pd.DataFrame, info: dict | None = None) -> dict:
+    info = info if isinstance(info, dict) else info_caixa_cached()
     resumo = resumo_base(df)
-    concurso = info.get("proximo_concurso") or (resumo["ultimo_concurso"] + 1)
-    data = info.get("data_proximo_concurso") or "Aguardando CAIXA"
-    premio = formatar_moeda(info.get("premio_estimado"))
+    ultimo_local = resumo["ultimo_concurso"]
+    try:
+        concurso_oficial = int(info.get("concurso_atual"))
+    except (TypeError, ValueError):
+        concurso_oficial = 0
+    base_sincronizada = bool(ultimo_local and concurso_oficial == ultimo_local)
+    concurso = info.get("proximo_concurso") if base_sincronizada else ultimo_local + 1
+    data = info.get("data_proximo_concurso") if base_sincronizada else None
+    premio = formatar_moeda(info.get("premio_estimado")) if base_sincronizada else "Consultar CAIXA"
     return {
         "concurso_alvo": concurso,
-        "data_sorteio": data,
+        "data_sorteio": data or "Aguardando CAIXA",
         "premio_estimado": premio,
+        "premiacao_resultado": info.get("premiacao_resultado", {}) if base_sincronizada else {},
+        "base_sincronizada": base_sincronizada,
         "acumulou": info.get("acumulou"),
-        "fonte": info.get("fonte", "fallback_local"),
+        "fonte": info.get("fonte", "fallback_local") if base_sincronizada else "base_local_validada",
     }
 
 
@@ -167,6 +192,9 @@ def aplicar_css() -> None:
         """
         <style>
         :root {
+            --lt-navy:#04111F;
+            --lt-cyan:#22D3EE;
+            --lt-gold:#D6B86A;
             --lf-blue:#0066B3;
             --lf-turquoise:#20C7B5;
             --lf-purple:#B000B9;
@@ -183,18 +211,21 @@ def aplicar_css() -> None:
         .stApp h1, .stApp h2, .stApp h3 { color:#fff; }
         .hero {
             position:relative; overflow:hidden;
-            background: linear-gradient(135deg,#0066B3 0%,#20C7B5 100%);
+            background:linear-gradient(135deg,#04111F 0%,#0A2945 62%,#075E75 100%);
             color:white; border-radius:20px; padding:34px 36px; margin-bottom:18px;
             box-shadow:0 18px 42px rgba(0,102,179,.24);
         }
         .hero:before, .hero:after {
-            content:"25  15  01"; position:absolute; color:rgba(255,255,255,.16);
+            content:"•  ─  •  ╱  •  5G  •  AI"; position:absolute; color:rgba(34,211,238,.22);
             font-size:46px; font-weight:900; letter-spacing:18px; transform:rotate(-12deg);
         }
         .hero:before { right:22px; top:18px; }
         .hero:after { left:28px; bottom:-8px; font-size:34px; opacity:.5; }
         .hero h1 { margin:0; font-size:46px; line-height:1.05; font-weight:950; position:relative; }
         .hero-sub { margin-top:10px; font-size:18px; font-weight:750; opacity:.98; position:relative; }
+        .lt-signature { position:relative; display:flex; align-items:center; gap:10px; margin-bottom:16px; color:#A5F3FC; font-size:11px; font-weight:900; letter-spacing:.16em; text-transform:uppercase; }
+        .lt-signature:before { content:"LT"; display:grid; place-items:center; width:34px; height:34px; border:1px solid var(--lt-cyan); border-radius:9px; color:var(--lt-cyan); transform:rotate(45deg); }
+        .lt-signature span { color:var(--lt-gold); font-size:9px; letter-spacing:.12em; }
         .oficial-shell {
             display:grid; grid-template-columns:1.35fr .85fr; gap:18px; align-items:stretch;
             margin:16px 0 20px;
@@ -291,6 +322,10 @@ def aplicar_css() -> None:
         [data-testid="stDownloadButton"] button:hover { border-color:#E879F9; background:rgba(176,0,185,.24); color:#fff; }
         .free-analysis-intro { margin:26px 0 18px; padding:20px 22px; border:1px solid rgba(103,232,249,.22); border-radius:18px; background:linear-gradient(135deg,rgba(32,199,181,.11),rgba(176,0,185,.08)); color:rgba(255,255,255,.75); font-size:14px; line-height:1.7; text-align:center; }
         .footer { text-align:center; color:rgba(255,255,255,.48); font-size:12px; line-height:1.7; padding:26px 18px; border:1px solid rgba(255,255,255,.09); background:rgba(255,255,255,.035); border-radius:18px; margin-top:28px; }
+        .lt-footer { margin-top:34px; padding:24px; text-align:center; border-top:1px solid rgba(34,211,238,.18); background:linear-gradient(180deg,rgba(4,17,31,0),rgba(4,17,31,.75)); color:#A5F3FC; }
+        .lt-footer strong { display:block; color:#fff; font-size:15px; letter-spacing:.18em; }
+        .lt-footer span { display:block; margin-top:6px; color:#D6B86A; font-size:10px; font-weight:800; letter-spacing:.15em; text-transform:uppercase; }
+        .lt-footer small { display:block; margin-top:12px; color:rgba(255,255,255,.48); }
         @media (max-width:760px) {
             .hero { padding:24px 22px; }
             .hero h1 { font-size:32px; }
@@ -326,8 +361,9 @@ def render_header() -> None:
     st.markdown(
         f"""
         <div class="hero">
-            <h1>Lotofácil Elite Pro V4</h1>
-            <div class="hero-sub">V4 Laboratório Estatístico • Versão gratuita • Análise estatística sem garantia de prêmio</div>
+            <div class="lt-signature">LEONIDAS TECH <span>Conectando o Futuro</span></div>
+            <h1>Lotofácil Elite Pro V5</h1>
+            <div class="hero-sub">V5 Inteligência de Dezenas • Versão gratuita • Laboratório Estatístico • Análise sem garantia de prêmio</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -340,12 +376,25 @@ def render_card_publico(df: pd.DataFrame, meta: dict) -> None:
     ultimo_concurso = int(df.iloc[-1]["Concurso"]) if not df.empty else "-"
     data_ultimo = str(df.iloc[-1]["Data"]) if not df.empty else "-"
     grid = dezenas_grid_lotofacil(ultimo)
+    rateio = meta.get("premiacao_resultado") or {}
+    linhas_premiacao = []
+    for acertos in (15, 14, 13, 12, 11):
+        faixa = rateio.get(acertos, {})
+        valor = formatar_moeda(faixa.get("valor")) if faixa else "Aguardando"
+        ganhadores = faixa.get("ganhadores") if faixa else None
+        complemento = f"<small>{ganhadores} ganhador(es)</small>" if ganhadores is not None else ""
+        linhas_premiacao.append(f'<div class="premio-row"><span>{acertos} acertos</span><span>{valor}{complemento}</span></div>')
+    texto_premiacao = (
+        f"Premiação oficial do concurso {ultimo_concurso}."
+        if rateio
+        else "Dados de premiação aguardando atualização oficial."
+    )
     st.markdown(
         f"""
         <div class="oficial-shell">
             <div class="public-card">
                 <div class="public-title">Resultado / Próximo Concurso</div>
-                <div class="public-concurso">Concurso: {meta['concurso_alvo']}</div>
+                <div class="public-concurso">Próximo concurso: {meta['concurso_alvo']}</div>
                 <div class="public-meta">Data: {meta['data_sorteio']}</div>
                 <div class="public-prize-label">Prêmio estimado</div>
                 <div class="public-prize">{premio}</div>
@@ -354,13 +403,9 @@ def render_card_publico(df: pd.DataFrame, meta: dict) -> None:
             </div>
             <div class="premiacao-card">
                 <h3>Premiação</h3>
-                <div class="premio-row"><span>15 acertos</span><span>Aguardando</span></div>
-                <div class="premio-row"><span>14 acertos</span><span>Aguardando</span></div>
-                <div class="premio-row"><span>13 acertos</span><span>Aguardando</span></div>
-                <div class="premio-row"><span>12 acertos</span><span>Aguardando</span></div>
-                <div class="premio-row"><span>11 acertos</span><span>Aguardando</span></div>
+                {''.join(linhas_premiacao)}
                 <div style="margin-top:16px;color:#64748B;font-size:14px;font-weight:750;line-height:1.45;">
-                    Dados de premiação aguardando atualização oficial.
+                    {texto_premiacao}
                 </div>
             </div>
         </div>
@@ -444,10 +489,26 @@ def render_conferencia(df: pd.DataFrame) -> None:
     conferir = st.button("CONFERIR JOGOS SALVOS", key="conferir_jogos_salvos", width="stretch")
     if conferir:
         salvos = conferir_jogos_salvos(df)
+        conferir_historico_sqlite(df)
     else:
         salvos = ler_jogos_salvos()
 
     salvos = normalizar_colunas_jogos_salvos(salvos)
+    st.markdown("### Histórico V5 em SQLite")
+    historico_sqlite = listar_historico_sqlite()
+    st.caption(f"Banco persistente: {CAMINHO_BANCO_V5}")
+    if historico_sqlite.empty:
+        st.info("O SQLite será preenchido automaticamente na próxima geração de carteira.")
+    else:
+        exibicao_sqlite = historico_sqlite.rename(columns={"Concurso Alvo": "Concurso SQLite"})
+        st.dataframe(exibicao_sqlite.tail(100), hide_index=True, width="stretch")
+        st.download_button(
+            "EXPORTAR HISTÓRICO SQLITE CSV",
+            historico_sqlite.to_csv(index=False).encode("utf-8-sig"),
+            "historico_jogos_v5_sqlite.csv",
+            "text/csv",
+            width="stretch",
+        )
     if salvos.empty:
         st.info("Nenhum jogo salvo para conferência.")
         return
@@ -578,6 +639,7 @@ def render_resultado(df: pd.DataFrame, meta: dict, configuracao: ConfiguracaoMot
     try:
         if "elite_generation_counter" not in st.session_state:
             st.session_state.elite_generation_counter = 0
+        nova_geracao = False
         if (
             atualizar
             or not isinstance(st.session_state.get("elite_generated_games"), pd.DataFrame)
@@ -590,12 +652,19 @@ def render_resultado(df: pd.DataFrame, meta: dict, configuracao: ConfiguracaoMot
             st.session_state.elite_generated_games = jogos_gerados
             st.session_state.elite_generated_quantity = quantidade
             st.session_state.last_elite_portfolio_signature = assinatura_portfolio(jogos_gerados)
+            nova_geracao = True
         st.session_state.jogos_elite_principais = st.session_state.elite_generated_games
         jogos = normalizar_jogos_gerados(st.session_state.jogos_elite_principais)
         validar_carteira(
             ([int(row[f"Bola{i}"]) for i in range(1, 16)] for _, row in jogos.iterrows()),
             configuracao,
         )
+        if nova_geracao:
+            salvar_carteira_sqlite(
+                jogos,
+                numero_carteira=st.session_state.elite_generation_counter,
+                concurso_alvo=int(meta["concurso_alvo"]),
+            )
     except Exception as erro:
         st.error(f"Não foi possível gerar a carteira inteligente: {erro}")
         return
@@ -696,6 +765,45 @@ def render_backtest(df: pd.DataFrame) -> None:
 
 def render_ranking(df: pd.DataFrame) -> None:
     st.subheader("Ranking das Dezenas")
+    st.caption("V5 · Frequências comparáveis nos últimos 20, 50, 100 e 200 concursos.")
+    ranking_v5 = ranking_janelas_v5(df)
+    janela = st.selectbox("Janela do Ranking V5", list(JANELAS_V5), index=1, key="ranking_v5_janela")
+    tabela_janela = ranking_v5.sort_values([f"Posição {janela}", "Dezena"])[
+        ["Dezena", f"Posição {janela}", f"Frequência {janela}", f"Taxa {janela} (%)", "Atraso", "Saiu no último"]
+    ].reset_index(drop=True)
+    st.bar_chart(tabela_janela.head(15).set_index("Dezena")[f"Frequência {janela}"])
+    st.dataframe(tabela_janela, hide_index=True, width="stretch")
+
+    st.markdown("### Painéis de Tendência V5")
+    paineis = paineis_tendencias_v5(df)
+    col_quentes, col_frias = st.columns(2)
+    with col_quentes:
+        st.markdown("#### 🔥 Quentes")
+        st.caption("Maior índice combinado nos últimos 20 e 50 concursos.")
+        st.dataframe(paineis["Quentes"], hide_index=True, width="stretch")
+    with col_frias:
+        st.markdown("#### ❄️ Frias")
+        st.caption("Menor índice combinado nos últimos 20 e 50 concursos.")
+        st.dataframe(paineis["Frias"], hide_index=True, width="stretch")
+    col_atrasadas, col_repetidas = st.columns(2)
+    with col_atrasadas:
+        st.markdown("#### ⏳ Atrasadas")
+        st.caption("Mais concursos transcorridos desde a última ocorrência.")
+        st.dataframe(paineis["Atrasadas"], hide_index=True, width="stretch")
+    with col_repetidas:
+        st.markdown("#### 🔁 Repetidas")
+        st.caption("Dezenas presentes nos dois concursos mais recentes.")
+        st.dataframe(paineis["Repetidas"], hide_index=True, width="stretch")
+
+    st.download_button(
+        "EXPORTAR RANKING V5 CSV",
+        ranking_v5.to_csv(index=False).encode("utf-8-sig"),
+        "ranking_dezenas_lotofacil_v5.csv",
+        "text/csv",
+        width="stretch",
+    )
+
+    st.markdown("### Ranking por Perfil do Motor")
     perfil = st.selectbox("Perfil estatístico", NOMES_JOGOS_PRODUCAO)
     ranking = ranking_dezenas_v2(df, perfil)
     st.bar_chart(ranking.head(15).set_index("Dezena")["Score da dezena"])
@@ -789,10 +897,11 @@ def render_laboratorio_estatistico(df: pd.DataFrame) -> None:
     figura.update_yaxes(title="Linha", dtick=1, autorange="reversed")
     st.plotly_chart(figura, width="stretch")
 
-    controles = st.columns(3)
+    controles = st.columns(4)
     concursos = controles[0].selectbox("Concursos no laboratório", [5, 10, 20, 30, 50], index=1, key="lab_concursos")
     quantidade_jogos = controles[1].selectbox("Jogos por estratégia", [5, 10, 20, 30], key="lab_quantidade_jogos")
     valor_unitario = controles[2].number_input("Valor estimado por jogo (R$)", 0.01, 100.0, float(st.session_state.get("cfg_custo_unitario", 3.50)), 0.50, key="lab_valor_unitario")
+    amostra_minima = controles[3].number_input("Amostra mínima por padrão", 1, 10_000, 10, 1, key="lab_amostra_minima")
 
     with st.expander("Premiações estimadas para simulação de ROI"):
         premios = {
@@ -811,7 +920,7 @@ def render_laboratorio_estatistico(df: pd.DataFrame) -> None:
                 quantidade_concursos=concursos,
                 quantidade_jogos=quantidade_jogos,
                 configuracao=configuracao_atual(),
-                amostra_minima_padrao=max(5, concursos),
+                amostra_minima_padrao=int(amostra_minima),
             )
             roi = calcular_roi_simulado(resultado.detalhes_jogos, valor_unitario, premios)
             salvar_historico_laboratorio(resultado, roi, quantidade_jogos)
@@ -849,11 +958,51 @@ def render_laboratorio_estatistico(df: pd.DataFrame) -> None:
         st.download_button("EXPORTAR HISTÓRICO DO LABORATÓRIO", historico.to_csv(index=False).encode("utf-8-sig"), "historico_laboratorio_v4.csv", "text/csv", width="stretch")
 
 
+def render_rodape_institucional() -> None:
+    st.markdown(
+        """
+        <footer class="lt-footer">
+            <strong>LEONIDAS TECH</strong>
+            <span>Conectando o Futuro</span>
+            <small>Lotofácil Elite Pro V5 · Laboratório estatístico responsável · leonidastech.com.br</small>
+        </footer>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def main() -> None:
     aplicar_css()
     render_header()
+    try:
+        inicializar_banco()
+        migrar_historico_csv()
+    except Exception as erro:
+        st.warning(f"Histórico SQLite temporariamente indisponível: {erro}")
     df = carregar_base()
-    meta = metadados_publicos(df)
+    info = info_caixa_cached()
+    ultimo_local = int(df.iloc[-1]["Concurso"]) if not df.empty else 0
+    try:
+        concurso_oficial = int(info.get("concurso_atual") or 0)
+    except (TypeError, ValueError):
+        concurso_oficial = 0
+    base_desatualizada = concurso_oficial > ultimo_local
+    atualizou_automaticamente = sincronizar_base_automatica_cached(ultimo_local, concurso_oficial)
+    if atualizou_automaticamente:
+        df = carregar_base()
+    ultimo_validado = int(df.iloc[-1]["Concurso"]) if not df.empty else 0
+    try:
+        novo_persistido = registrar_concurso_visto(ultimo_validado)
+    except Exception:
+        novo_persistido = False
+    if atualizou_automaticamente or novo_persistido:
+        st.success(f"🆕 Novo concurso detectado: {ultimo_validado}. Base oficial atualizada automaticamente.")
+    elif base_desatualizada:
+        st.warning(
+            f"Novo concurso {concurso_oficial} identificado, mas a atualização não foi concluída. "
+            "A base local anterior foi preservada."
+        )
+    meta = metadados_publicos(df, info)
     render_card_publico(df, meta)
 
     abas = st.tabs(["Gerar Jogos", "Estratégia Inteligente", "Laboratório Estatístico", "Backtest", "Conferir Jogos", "Ranking das Dezenas", "Configurações"])
@@ -871,6 +1020,7 @@ def main() -> None:
         render_ranking(df)
     with abas[6]:
         render_configuracoes()
+    render_rodape_institucional()
 
 if __name__ == "__main__":
     main()

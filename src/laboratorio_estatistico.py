@@ -15,7 +15,7 @@ from .validacao_jogos import ConfiguracaoMotor, sequencia_maxima, validar_cartei
 
 ESTRATEGIAS_LABORATORIO = ["Motor Elite", "Aleatório puro", "Dezenas quentes", "Dezenas frias", "Híbrido quente/frio"]
 CAMINHO_HISTORICO_LABORATORIO = RAIZ_PROJETO / "exports" / "historico_laboratorio_v4.csv"
-COLUNAS_HISTORICO_LABORATORIO = ["Data", "Estratégia", "Concursos avaliados", "Quantidade de jogos", "Melhor acerto", "Média", "ROI (%)", "Status"]
+COLUNAS_HISTORICO_LABORATORIO = ["Data/hora", "Estratégia", "Concursos avaliados", "Quantidade de jogos", "Melhor acerto", "Média", "ROI (%)", "Status"]
 
 
 @dataclass
@@ -233,7 +233,7 @@ def salvar_historico_laboratorio(
     roi_por_estrategia = roi.set_index("Estratégia")["ROI (%)"].to_dict()
     linhas = []
     for _, registro in resultado.resumo.iterrows():
-        linhas.append({"Data": agora, "Estratégia": registro["Estratégia"], "Concursos avaliados": int(registro["Concursos"]), "Quantidade de jogos": int(quantidade_jogos), "Melhor acerto": int(registro["Melhor acerto"]), "Média": float(registro["Média do melhor acerto"]), "ROI (%)": float(roi_por_estrategia.get(registro["Estratégia"], 0.0)), "Status": "CONCLUÍDO"})
+        linhas.append({"Data/hora": agora, "Estratégia": registro["Estratégia"], "Concursos avaliados": int(registro["Concursos"]), "Quantidade de jogos": int(quantidade_jogos), "Melhor acerto": int(registro["Melhor acerto"]), "Média": float(registro["Média do melhor acerto"]), "ROI (%)": float(roi_por_estrategia.get(registro["Estratégia"], 0.0)), "Status": "CONCLUÍDO"})
     anteriores = ler_historico_laboratorio(caminho)
     atual = pd.concat([anteriores, pd.DataFrame(linhas)], ignore_index=True)
     caminho.parent.mkdir(parents=True, exist_ok=True)
@@ -245,6 +245,8 @@ def ler_historico_laboratorio(caminho: Path = CAMINHO_HISTORICO_LABORATORIO) -> 
     if not caminho.exists() or caminho.stat().st_size == 0:
         return pd.DataFrame(columns=COLUNAS_HISTORICO_LABORATORIO)
     dados = pd.read_csv(caminho, encoding="utf-8-sig")
+    if "Data" in dados.columns and "Data/hora" not in dados.columns:
+        dados = dados.rename(columns={"Data": "Data/hora"})
     for coluna in COLUNAS_HISTORICO_LABORATORIO:
         if coluna not in dados.columns:
             dados[coluna] = ""

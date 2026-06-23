@@ -47,6 +47,9 @@ def test_laboratorio_compara_todas_as_estrategias(base: pd.DataFrame) -> None:
     assert set(resultado.resumo["Estratégia"]) == set(ESTRATEGIAS_LABORATORIO)
     assert len(resultado.detalhes_carteiras) == 2 * 5
     assert len(resultado.detalhes_jogos) == 2 * 5 * 5
+    por_estrategia = resultado.detalhes_carteiras.groupby("Estratégia")
+    assert por_estrategia["Concurso"].nunique().eq(2).all()
+    assert por_estrategia["Quantidade de jogos"].unique().map(lambda valores: list(valores) == [5]).all()
     for coluna in ("Taxa 11+", "Taxa 12+", "Taxa 13+", "Taxa 14+", "Taxa 15"):
         assert coluna in resultado.resumo
         assert resultado.resumo[coluna].between(0, 100).all()
@@ -98,7 +101,19 @@ def test_banco_historico_salva_e_reabre_simulacoes(base: pd.DataFrame) -> None:
         reaberto = ler_historico_laboratorio(caminho)
         assert len(salvo) == len(ESTRATEGIAS_LABORATORIO)
         assert reaberto.equals(salvo)
+        assert "Data/hora" in reaberto.columns
         assert set(reaberto["Status"]) == {"CONCLUÍDO"}
+
+
+def test_banco_historico_migra_cabecalho_data_legado() -> None:
+    with TemporaryDirectory() as pasta:
+        caminho = Path(pasta) / "historico_legado.csv"
+        pd.DataFrame([{"Data": "2026-01-01T12:00:00-03:00", "Estratégia": "Motor Elite"}]).to_csv(
+            caminho, index=False, encoding="utf-8-sig"
+        )
+        historico = ler_historico_laboratorio(caminho)
+        assert "Data/hora" in historico.columns
+        assert historico.iloc[0]["Data/hora"] == "2026-01-01T12:00:00-03:00"
 
 
 def test_laboratorio_nao_fornece_resultado_futuro(base: pd.DataFrame, monkeypatch) -> None:
