@@ -106,6 +106,16 @@ def test_card_renderiza_premiacao_oficial_disponivel(monkeypatch) -> None:
     assert "15.058 ganhadores" in html
     assert "183.851 ganhadores" in html
     assert "946.867 ganhadores" in html
+    assert "Resultado oficial" in html
+    assert "Concurso 120" in html
+    assert "Data do resultado: 01/01/2026" in html
+    assert "Próximo sorteio" in html
+    assert "Concurso 121" in html
+    assert "Data prevista: 02/01/2026" in html
+    assert 'href="https://loterias.caixa.gov.br/Paginas/Lotofacil.aspx"' in html
+    assert 'target="_blank"' in html
+    assert 'rel="noopener noreferrer"' in html
+    assert "Análise estatística sem garantia de prêmio. Confira sempre os dados no site oficial da CAIXA." in html
 
 
 def test_api_normaliza_rateio_oficial(monkeypatch) -> None:

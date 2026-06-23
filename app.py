@@ -256,9 +256,20 @@ def aplicar_css() -> None:
         .public-card { padding:24px; border-top:4px solid var(--lf-turquoise); }
         .public-title { color:#67E8F9; font-size:18px; font-weight:950; text-transform:uppercase; letter-spacing:.04em; }
         .public-concurso { color:#E879F9; font-size:30px; font-weight:950; margin:6px 0; }
+        .proximo-sorteio { margin-top:20px; padding-top:18px; border-top:1px solid rgba(103,232,249,.22); }
+        .proximo-sorteio-titulo { color:#67E8F9; font-size:16px; font-weight:950; text-transform:uppercase; letter-spacing:.04em; }
+        .proximo-sorteio-concurso { color:#fff; font-size:24px; font-weight:950; margin:5px 0 2px; }
         .public-prize-label { color:rgba(255,255,255,.55); font-size:15px; font-weight:850; margin-top:14px; }
         .public-prize { color:#FFD700; font-size:38px; font-weight:950; margin:2px 0 8px; }
         .public-meta { color:rgba(255,255,255,.72); font-size:16px; font-weight:850; line-height:1.55; }
+        .caixa-link {
+            display:inline-flex; align-items:center; justify-content:center; margin-top:16px; padding:11px 16px;
+            border:1px solid rgba(103,232,249,.5); border-radius:12px; background:rgba(34,211,238,.1);
+            color:#A5F3FC !important; font-size:14px; font-weight:900; text-decoration:none !important;
+            transition:background .2s ease,border-color .2s ease,transform .2s ease;
+        }
+        .caixa-link:hover { background:rgba(34,211,238,.18); border-color:#67E8F9; transform:translateY(-1px); }
+        .caixa-aviso { margin-top:12px; color:rgba(255,255,255,.56); font-size:12px; font-weight:700; line-height:1.5; }
         .lotofacil-grid {
             display:grid; grid-template-columns:repeat(5, minmax(42px, 1fr)); gap:0;
             border:1px solid rgba(232,121,249,.35); border-radius:14px; overflow:hidden; margin-top:18px;
@@ -354,6 +365,8 @@ def aplicar_css() -> None:
             .hero h1 { font-size:32px; }
             .oficial-shell { grid-template-columns:1fr; }
             .public-concurso { font-size:25px; }
+            .proximo-sorteio-concurso { font-size:21px; }
+            .caixa-link { display:flex; width:100%; box-sizing:border-box; }
             .premiacao-card { padding:20px; }
             .premio-row { grid-template-columns:minmax(84px,.75fr) minmax(138px,1.25fr); gap:10px; }
             .premio-valor { font-size:15px; }
@@ -430,13 +443,19 @@ def render_card_publico(df: pd.DataFrame, meta: dict) -> None:
         f"""
         <div class="oficial-shell">
             <div class="public-card">
-                <div class="public-title">Resultado / Próximo Concurso</div>
-                <div class="public-concurso">Próximo concurso: {meta['concurso_alvo']}</div>
-                <div class="public-meta">Data: {meta['data_sorteio']}</div>
-                <div class="public-prize-label">Prêmio estimado</div>
-                <div class="public-prize">{premio}</div>
-                <div class="public-meta" style="margin-top:12px;color:#67E8F9;">Último resultado carregado: concurso {ultimo_concurso} | {data_ultimo}</div>
+                <div class="public-title">Resultado oficial</div>
+                <div class="public-concurso">Concurso {ultimo_concurso}</div>
+                <div class="public-meta">Data do resultado: {data_ultimo}</div>
                 {grid}
+                <div class="proximo-sorteio">
+                    <div class="proximo-sorteio-titulo">Próximo sorteio</div>
+                    <div class="proximo-sorteio-concurso">Concurso {meta['concurso_alvo']}</div>
+                    <div class="public-meta">Data prevista: {meta['data_sorteio']}</div>
+                    <div class="public-prize-label">Prêmio estimado</div>
+                    <div class="public-prize">{premio}</div>
+                    <a class="caixa-link" href="https://loterias.caixa.gov.br/Paginas/Lotofacil.aspx" target="_blank" rel="noopener noreferrer">Conferir no site oficial da CAIXA</a>
+                    <div class="caixa-aviso">Análise estatística sem garantia de prêmio. Confira sempre os dados no site oficial da CAIXA.</div>
+                </div>
             </div>
             <div class="premiacao-card">
                 <h3>Premiação</h3>
