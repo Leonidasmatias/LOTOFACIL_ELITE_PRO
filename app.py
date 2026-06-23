@@ -1,5 +1,6 @@
 ﻿from __future__ import annotations
 
+from datetime import date, datetime
 import re
 import time
 
@@ -89,6 +90,12 @@ def info_resultado_cached(concurso: int) -> dict:
     return info if isinstance(info, dict) else {}
 
 
+def forcar_refresh_info_caixa() -> dict:
+    info_caixa_cached.clear()
+    info = buscar_info_concurso_atual()
+    return info if isinstance(info, dict) else {}
+
+
 def formatar_moeda(valor: object) -> str:
     try:
         numero = float(valor)
@@ -102,6 +109,7 @@ def metadados_publicos(
     df: pd.DataFrame,
     info: dict | None = None,
     info_resultado: dict | None = None,
+    hoje: date | None = None,
 ) -> dict:
     info = info if isinstance(info, dict) else info_caixa_cached()
     resumo = resumo_base(df)
@@ -118,18 +126,38 @@ def metadados_publicos(
     base_sincronizada = bool(ultimo_local and concurso_oficial == ultimo_local)
     resultado_sincronizado = bool(ultimo_local and concurso_rateio == ultimo_local)
     referencia_proximo = info_resultado if resultado_sincronizado else (info if base_sincronizada else {})
+
+    hoje = hoje or date.today()
+
+    def data_oficial(referencia: dict) -> date | None:
+        valor = str(referencia.get("data_proximo_concurso") or "").strip()
+        try:
+            return datetime.strptime(valor, "%d/%m/%Y").date()
+        except ValueError:
+            return None
+
+    data_referencia = data_oficial(referencia_proximo)
+    data_vencida = bool(data_referencia and data_referencia < hoje)
+    if data_vencida:
+        data_api_atual = data_oficial(info)
+        if data_api_atual and data_api_atual >= hoje:
+            referencia_proximo = info
+            data_referencia = data_api_atual
+        else:
+            data_referencia = None
     concurso = referencia_proximo.get("proximo_concurso") or ultimo_local + 1
-    data = referencia_proximo.get("data_proximo_concurso")
+    data = referencia_proximo.get("data_proximo_concurso") if data_referencia else None
     premio = formatar_moeda(referencia_proximo.get("premio_estimado"))
     return {
         "concurso_alvo": concurso,
-        "data_sorteio": data or "Aguardando CAIXA",
+        "data_sorteio": data or "Data aguardando atualização oficial da CAIXA",
         "premio_estimado": premio,
         "premiacao_resultado": info_resultado.get("premiacao_resultado", {}) if resultado_sincronizado else {},
         "base_sincronizada": base_sincronizada,
         "resultado_sincronizado": resultado_sincronizado,
         "acumulou": info_resultado.get("acumulou") if resultado_sincronizado else None,
         "fonte": info_resultado.get("fonte", "fallback_local") if resultado_sincronizado else "base_local_validada",
+        "data_proximo_vencida": data_vencida,
     }
 
 
@@ -1060,6 +1088,9 @@ def main() -> None:
         )
     info_resultado = info_resultado_cached(ultimo_validado) if ultimo_validado else {}
     meta = metadados_publicos(df, info, info_resultado)
+    if meta["data_proximo_vencida"]:
+        info = forcar_refresh_info_caixa()
+        meta = metadados_publicos(df, info, info_resultado)
     render_card_publico(df, meta)
 
     abas = st.tabs(["Gerar Jogos", "Estratégia Inteligente", "Laboratório Estatístico", "Backtest", "Conferir Jogos", "Ranking das Dezenas", "Configurações"])

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import date
+
 import pandas as pd
 
 import app
@@ -68,6 +70,7 @@ def test_home_separa_proximo_concurso_do_rateio_do_ultimo_resultado() -> None:
             "premiacao_resultado": rateio_3716,
             "acumulou": True,
         },
+        hoje=date(2026, 6, 22),
     )
     assert meta["concurso_alvo"] == 3717
     assert meta["data_sorteio"] == "22/06/2026"
@@ -75,6 +78,57 @@ def test_home_separa_proximo_concurso_do_rateio_do_ultimo_resultado() -> None:
     assert meta["premiacao_resultado"] == rateio_3716
     assert meta["resultado_sincronizado"] is True
     assert meta["base_sincronizada"] is False
+
+
+def test_home_substitui_data_vencida_pelo_proximo_valido_sem_trocar_rateio() -> None:
+    rateio_3716 = {14: {"valor": 2106.09, "ganhadores": 215}}
+    meta = app.metadados_publicos(
+        _base(3716),
+        {
+            "fonte": "CAIXA",
+            "concurso_atual": 3717,
+            "proximo_concurso": 3718,
+            "data_proximo_concurso": "23/06/2026",
+            "premio_estimado": 2_000_000,
+            "premiacao_resultado": {15: {"valor": 696_735.10, "ganhadores": 6}},
+        },
+        {
+            "fonte": "CAIXA",
+            "concurso_atual": 3716,
+            "proximo_concurso": 3717,
+            "data_proximo_concurso": "22/06/2026",
+            "premio_estimado": 5_000_000,
+            "premiacao_resultado": rateio_3716,
+        },
+        hoje=date(2026, 6, 23),
+    )
+    assert meta["concurso_alvo"] == 3718
+    assert meta["data_sorteio"] == "23/06/2026"
+    assert meta["premio_estimado"] == "R$ 2.000.000,00"
+    assert meta["premiacao_resultado"] == rateio_3716
+    assert meta["data_proximo_vencida"] is True
+
+
+def test_home_nunca_exibe_data_vencida_se_api_continua_antiga() -> None:
+    info_antiga = {
+        "fonte": "CAIXA",
+        "concurso_atual": 3716,
+        "proximo_concurso": 3717,
+        "data_proximo_concurso": "22/06/2026",
+        "premio_estimado": 5_000_000,
+        "premiacao_resultado": {14: {"valor": 2106.09, "ganhadores": 215}},
+    }
+    meta = app.metadados_publicos(_base(3716), info_antiga, info_antiga, hoje=date(2026, 6, 23))
+    assert meta["data_sorteio"] == "Data aguardando atualização oficial da CAIXA"
+    assert meta["data_proximo_vencida"] is True
+
+
+def test_refresh_vencido_limpa_cache_e_consulta_api(monkeypatch) -> None:
+    chamadas = []
+    monkeypatch.setattr(app.info_caixa_cached, "clear", lambda: chamadas.append("cache_limpo"))
+    monkeypatch.setattr(app, "buscar_info_concurso_atual", lambda: chamadas.append("api") or {"concurso_atual": 3717})
+    assert app.forcar_refresh_info_caixa() == {"concurso_atual": 3717}
+    assert chamadas == ["cache_limpo", "api"]
 
 
 def test_card_renderiza_premiacao_oficial_disponivel(monkeypatch) -> None:
