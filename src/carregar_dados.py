@@ -27,6 +27,10 @@ COLUNAS_OBRIGATORIAS = ["Concurso", "Data", *COLUNAS_DEZENAS]
 ERROS_REDE = (HTTPError, URLError, TimeoutError, OSError, ValueError)
 
 
+def _log_update(mensagem: str) -> None:
+    print(f"[UPDATE] {mensagem}", flush=True)
+
+
 def _abrir_url_json(url: str, timeout: int = 20) -> dict:
     import json
 
@@ -139,6 +143,21 @@ def carregar_base(caminho: Path = CAMINHO_BASE_PADRAO) -> pd.DataFrame:
             shutil.copy2(CAMINHO_BASE_EMBUTIDA, caminho)
         else:
             criar_base_inicial_desenvolvimento(caminho)
+    elif CAMINHO_BASE_EMBUTIDA.exists() and caminho.resolve() != CAMINHO_BASE_EMBUTIDA.resolve():
+        temporario = caminho.with_suffix(caminho.suffix + ".embedded.tmp")
+        try:
+            base_volume = validar_base(pd.read_csv(caminho, encoding="utf-8-sig"))
+            base_embutida = validar_base(pd.read_csv(CAMINHO_BASE_EMBUTIDA, encoding="utf-8-sig"))
+            ultimo_volume = int(base_volume["Concurso"].max()) if not base_volume.empty else 0
+            ultimo_embutido = int(base_embutida["Concurso"].max()) if not base_embutida.empty else 0
+            if ultimo_embutido > ultimo_volume:
+                shutil.copy2(CAMINHO_BASE_EMBUTIDA, temporario)
+                validar_base(pd.read_csv(temporario, encoding="utf-8-sig"))
+                temporario.replace(caminho)
+                _log_update(f"Volume promovido de {ultimo_volume} para {ultimo_embutido} usando a base publicada")
+        except Exception as erro:
+            temporario.unlink(missing_ok=True)
+            _log_update(f"ERRO ao sincronizar base publicada com volume: {type(erro).__name__}: {erro}")
     return validar_base(pd.read_csv(caminho, encoding="utf-8-sig"))
 
 
@@ -219,11 +238,16 @@ def buscar_info_concurso_atual() -> dict:
 def baixar_base_oficial_completa() -> pd.DataFrame:
     ultimo = _abrir_url_json(API_CAIXA_LOTOFACIL_URL)
     ultimo_concurso = int(ultimo["numero"])
+    base_local = carregar_base(CAMINHO_BASE_PADRAO) if CAMINHO_BASE_PADRAO.exists() else pd.DataFrame(columns=COLUNAS_OBRIGATORIAS)
+    ultimo_local = int(base_local["Concurso"].max()) if not base_local.empty else 0
+    _log_update(f"CSV={ultimo_local}")
+    _log_update(f"API={ultimo_concurso}")
     try:
         conteudo = _abrir_url_bytes(DOWNLOAD_CAIXA_LOTOFACIL_URL)
         base = _normalizar_base_oficial(_ler_tabela_download_caixa(conteudo))
-    except Exception:
-        base = carregar_base(CAMINHO_BASE_PADRAO) if CAMINHO_BASE_PADRAO.exists() else pd.DataFrame(columns=COLUNAS_OBRIGATORIAS)
+    except Exception as erro:
+        _log_update(f"Download completo indisponível; usando CSV local: {type(erro).__name__}: {erro}")
+        base = base_local
 
     ultimo_na_base = int(base["Concurso"].max()) if not base.empty else 0
     if ultimo_na_base > ultimo_concurso:
@@ -256,8 +280,10 @@ def atualizar_base_local() -> bool:
         dados.to_csv(temporario, index=False, encoding="utf-8-sig")
         validar_base(pd.read_csv(temporario, encoding="utf-8-sig"))
         temporario.replace(CAMINHO_BASE_PADRAO)
-    except Exception:
+        _log_update(f"Atualização executada com sucesso; CSV={int(dados['Concurso'].max())}")
+    except Exception as erro:
         temporario.unlink(missing_ok=True)
+        _log_update(f"ERRO: {type(erro).__name__}: {erro}")
         return False
     return True
 

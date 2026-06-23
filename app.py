@@ -79,9 +79,16 @@ def info_caixa_cached() -> dict:
 
 @st.cache_data(ttl=300, show_spinner=False)
 def sincronizar_base_automatica_cached(ultimo_local: int, concurso_oficial: int) -> bool:
+    print(f"[UPDATE] CSV={ultimo_local}", flush=True)
+    print(f"[UPDATE] API={concurso_oficial or 'indisponível'}", flush=True)
     if concurso_oficial <= ultimo_local:
+        resultado = "Base já atualizada" if concurso_oficial else "API indisponível; CSV local preservado"
+        print(f"[UPDATE] {resultado}", flush=True)
         return False
-    return atualizar_base_local()
+    atualizou = atualizar_base_local()
+    if not atualizou:
+        print("[UPDATE] Atualização não concluída; consulte o erro acima", flush=True)
+    return atualizou
 
 
 @st.cache_data(ttl=300, show_spinner=False)
