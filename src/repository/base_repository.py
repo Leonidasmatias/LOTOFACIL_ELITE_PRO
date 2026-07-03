@@ -11,7 +11,7 @@ from urllib.request import Request, urlopen
 import pandas as pd
 
 
-RAIZ_PROJETO = Path(__file__).resolve().parents[1]
+RAIZ_PROJETO = Path(__file__).resolve().parents[2]
 CAMINHO_BASE_EMBUTIDA = RAIZ_PROJETO / "dados" / "lotofacil_historico.csv"
 CAMINHO_METADADOS_OFICIAIS = RAIZ_PROJETO / "dados" / "metadados_oficiais_lotofacil.json"
 DIRETORIO_DADOS = Path(os.getenv("LOTOFACIL_DATA_DIR", RAIZ_PROJETO / "dados"))
