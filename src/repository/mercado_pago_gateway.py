@@ -1,7 +1,11 @@
+"""Gateway HTTP do Mercado Pago (PIX).
+
+Movido de ``src/mercado_pago_pix.py`` sem alteracao de logica (Fase 1 - Phoenix V1).
+Trata-se de acesso a dado externo (API de pagamentos), por isso pertence ao Repository.
+"""
 from __future__ import annotations
 
 import base64
-from io import BytesIO
 
 import requests
 

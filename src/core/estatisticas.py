@@ -1,8 +1,14 @@
+"""Estatisticas puras sobre a base historica da Lotofacil.
+
+Movido de ``src/estatisticas_lotofacil.py`` sem alteracao de logica (Fase 2 -
+Phoenix V1). Apenas o import da constante ``COLUNAS_DEZENAS`` foi atualizado
+para apontar para a nova localizacao no Repository.
+"""
 from __future__ import annotations
 
 import pandas as pd
 
-from .carregar_dados import COLUNAS_DEZENAS
+from ..repository.base_repository import COLUNAS_DEZENAS
 
 
 TODAS_DEZENAS = list(range(1, 26))

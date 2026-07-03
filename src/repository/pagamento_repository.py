@@ -1,23 +1,18 @@
+"""Persistencia do log de pagamentos (CSV).
+
+Extraido de ``src/pagamentos.py`` (Fase 1 - Phoenix V1). A parte de I/O (escrita em
+disco) fica aqui; as regras puras (validar e-mail, calcular valor) foram para
+``src/core/pagamento_regras.py``.
+"""
 from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
-import re
 
 import pandas as pd
 
 
-VALOR_POR_ANALISE = 1.0
 CAMINHO_LOG_PAGAMENTOS = Path("exports") / "pagamentos.csv"
-EMAIL_REGEX = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
-
-
-def email_cliente_valido(email: str) -> bool:
-    return bool(EMAIL_REGEX.match(str(email).strip()))
-
-
-def calcular_valor_pagamento(quantidade: int = 1) -> float:
-    return round(max(1, int(quantidade)) * VALOR_POR_ANALISE, 2)
 
 
 def registrar_pagamento(

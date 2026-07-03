@@ -1,0 +1,41 @@
+# Normaliza terminacao de linha do repositorio para LF, eliminando o ruido de
+# CRLF/LF identificado na auditoria da Phoenix V1 (git status mostrando quase
+# todo arquivo pre-existente como "modificado" so por diferenca de fim-de-linha).
+#
+# Esta regra vale para novos arquivos e para o proximo `git add` de arquivos
+# existentes. Ela NAO reescreve sozinha o historico nem os arquivos ja
+# commitados: para normalizar o que ja existe no repositorio, rode uma vez
+# (fora desta sessao, sob sua revisao):
+#
+#   git add --renormalize .
+#   git commit -m "chore: normaliza fim-de-linha para LF (.gitattributes)"
+#
+# Nenhum conteudo/logica e alterado por isso, apenas a codificacao de quebra
+# de linha em disco.
+
+* text=auto eol=lf
+
+*.py    text eol=lf
+*.md    text eol=lf
+*.txt   text eol=lf
+*.toml  text eol=lf
+*.cfg   text eol=lf
+*.ini   text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+*.json  text eol=lf
+*.csv   text eol=lf
+.gitignore      text eol=lf
+.gitattributes  text eol=lf
+.editorconfig   text eol=lf
+
+# Binarios (se existirem/forem adicionados no futuro) nao devem ser tocados.
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.pdf  binary
+*.zip  binary
+*.xlsx binary
+*.xls  binary

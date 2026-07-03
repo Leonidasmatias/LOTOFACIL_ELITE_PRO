@@ -1,3 +1,9 @@
+"""Motor Elite Lotofacil: geracao e ranqueamento de jogos.
+
+Movido de ``src/motor_elite_lotofacil.py`` sem alteracao de nenhuma regra
+matematica, peso ou algoritmo (Fase 2 - Phoenix V1). Apenas os imports internos
+foram atualizados para as novas localizacoes (``repository`` e ``core``).
+"""
 from __future__ import annotations
 
 from collections import Counter, deque
@@ -6,8 +12,8 @@ import random
 
 import pandas as pd
 
-from .carregar_dados import COLUNAS_DEZENAS
-from .estatisticas_lotofacil import (
+from ..repository.base_repository import COLUNAS_DEZENAS
+from .estatisticas import (
     TODAS_DEZENAS,
     centro_moldura,
     dezenas_atrasadas,

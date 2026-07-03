@@ -3,7 +3,6 @@ from __future__ import annotations
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
-from statistics import mean
 
 import pandas as pd
 

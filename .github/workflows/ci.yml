@@ -1,0 +1,34 @@
+# CI minima e vendor-neutra: toda a logica de verificacao vive em
+# dev_check.py, na raiz do projeto. Este workflow apenas instala as
+# dependencias e chama esse mesmo script que roda localmente — trocar de
+# provedor de CI no futuro (GitLab CI, outro) significa copiar so os passos
+# "instalar" + "python dev_check.py", sem duplicar regras.
+#
+# Este arquivo fica inerte ate o repositorio ser hospedado no GitHub com
+# Actions habilitado; nao exige nenhuma conta ou servico externo adicional.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  verificar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Instalar dependencias (producao + desenvolvimento)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+
+      - name: Rodar verificacao unica (estrutura + imports + testes)
+        run: python dev_check.py
