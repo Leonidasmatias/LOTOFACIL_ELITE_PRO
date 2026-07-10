@@ -50,6 +50,8 @@ from src.laboratorio_estatistico import (
     salvar_historico_laboratorio,
 )
 from src.validacao_jogos import ConfiguracaoMotor, validar_carteira
+from src.models.trend_hybrid import PesosTendencia
+from src.services import trend_hybrid_service
 
 
 st.set_page_config(page_title="Lotofácil Elite Pro V5", page_icon="LF", layout="wide")
@@ -1049,6 +1051,141 @@ def render_laboratorio_estatistico(df: pd.DataFrame) -> None:
         st.download_button("EXPORTAR HISTÓRICO DO LABORATÓRIO", historico.to_csv(index=False).encode("utf-8-sig"), "historico_laboratorio_v4.csv", "text/csv", width="stretch")
 
 
+@st.cache_data(show_spinner=False)
+def trend_hybrid_bilhete_cached(df: pd.DataFrame, divisao: tuple[int, int], pesos: PesosTendencia):
+    return trend_hybrid_service.gerar_bilhete_do_dia(df, divisao=divisao, pesos=pesos)
+
+
+def render_trend_hybrid(df: pd.DataFrame) -> None:
+    st.subheader("Trend Hybrid Engine 9+6")
+    st.caption(
+        "9 dezenas do último concurso + 6 dezenas que não saíram, sempre pelo maior Trend Score. "
+        "Nada de sorteio aleatório puro: toda dezena escolhida tem uma justificativa estatística explícita."
+    )
+
+    colunas_controle = st.columns(2)
+    opcoes_divisao = trend_hybrid_service.divisoes_suportadas()
+    rotulos_divisao = [f"{a}+{b}" for a, b in opcoes_divisao]
+    indice_padrao = opcoes_divisao.index((9, 6)) if (9, 6) in opcoes_divisao else 0
+    escolha = colunas_controle[0].selectbox("Divisão Grupo A + Grupo B", rotulos_divisao, index=indice_padrao, key="trend_divisao")
+    divisao = opcoes_divisao[rotulos_divisao.index(escolha)]
+    peso_atraso = colunas_controle[1].slider("Peso do atraso (adaptativo, 0–10%)", 0.0, 0.10, 0.05, 0.01, key="trend_peso_atraso")
+    pesos = PesosTendencia(peso_atraso=float(peso_atraso))
+
+    bilhete = trend_hybrid_bilhete_cached(df, divisao, pesos)
+    explicacao = trend_hybrid_service.explicar(bilhete)
+
+    st.markdown(
+        f'<div class="wallet-badge"><span>TREND HYBRID {divisao[0]}+{divisao[1]}</span></div>',
+        unsafe_allow_html=True,
+    )
+    st.write(" · ".join(f"{d:02d}" for d in bilhete.dezenas))
+    metricas = st.columns(4)
+    metricas[0].metric("Trend Score total", f"{bilhete.trend_score_total:.1f}")
+    metricas[1].metric("Grupo A (último concurso)", len(bilhete.grupo_a_selecionadas))
+    metricas[2].metric("Grupo B (não saiu)", len(bilhete.grupo_b_selecionadas))
+    metricas[3].metric("Margem de busca", bilhete.margem_busca)
+    st.info(explicacao.resumo)
+
+    st.download_button(
+        "EXPORTAR BILHETE CSV",
+        pd.DataFrame([{f"Bola{i}": d for i, d in enumerate(bilhete.dezenas, 1)}]).to_csv(index=False).encode("utf-8-sig"),
+        "trend_hybrid_bilhete.csv",
+        "text/csv",
+        width="stretch",
+    )
+
+    st.markdown("#### Por que cada dezena foi escolhida")
+    tabela_selecionadas = pd.DataFrame(
+        [
+            {
+                "Dezena": e.dezena,
+                "Grupo": e.grupo,
+                "Trend Score": round(e.trend_score, 2),
+                "Freq. últimos 10": e.frequencia_ult10,
+                "Atraso": e.atraso,
+                "Momentum": round(e.momentum, 4),
+                "Regularidade": round(e.regularidade, 4),
+                "Motivo": e.motivo,
+            }
+            for e in explicacao.selecionadas
+        ]
+    )
+    st.dataframe(tabela_selecionadas, hide_index=True, width="stretch")
+
+    with st.expander("Dezenas descartadas e motivo"):
+        tabela_descartadas = pd.DataFrame(
+            [
+                {"Dezena": e.dezena, "Grupo": e.grupo, "Trend Score": round(e.trend_score, 2), "Motivo": e.motivo}
+                for e in explicacao.descartadas
+            ]
+        )
+        st.dataframe(tabela_descartadas, hide_index=True, width="stretch")
+
+    st.markdown("#### Ranking completo por Trend Score")
+    ranking = trend_hybrid_service.gerar_ranking_trend_score(df, pesos=pesos)
+    st.bar_chart(ranking.head(15).set_index("Dezena")["Trend Score"])
+    st.dataframe(ranking, hide_index=True, width="stretch")
+    st.download_button(
+        "EXPORTAR RANKING TREND SCORE CSV",
+        ranking.to_csv(index=False).encode("utf-8-sig"),
+        "ranking_trend_score.csv",
+        "text/csv",
+        width="stretch",
+    )
+
+    st.markdown("#### Backtest rápido (sem vazamento temporal)")
+    st.caption("Cada concurso é previsto usando somente concursos anteriores a ele.")
+    controles_backtest = st.columns(2)
+    concursos_backtest = controles_backtest[0].selectbox(
+        "Concursos para simular", [20, 50, 100, 200], index=1, key="trend_backtest_concursos"
+    )
+    comparar_divisoes = controles_backtest[1].checkbox(
+        "Comparar as 4 divisões (8+7, 9+6, 10+5, 11+4)", key="trend_comparar_divisoes"
+    )
+
+    if st.button("EXECUTAR BACKTEST TREND HYBRID", type="primary", width="stretch"):
+        with st.spinner("Simulando concursos históricos..."):
+            if comparar_divisoes:
+                comparativo, melhor_divisao, resultados = trend_hybrid_service.otimizar_divisao(
+                    df, pesos=pesos, quantidade_concursos=int(concursos_backtest)
+                )
+                st.session_state.trend_hybrid_comparativo = comparativo
+                st.session_state.trend_hybrid_melhor_divisao = melhor_divisao
+                st.session_state.trend_hybrid_backtest_unico = None
+            else:
+                resultado = trend_hybrid_service.executar_backtest(
+                    df, divisao=divisao, pesos=pesos, quantidade_concursos=int(concursos_backtest)
+                )
+                st.session_state.trend_hybrid_backtest_unico = resultado
+                st.session_state.trend_hybrid_comparativo = None
+
+    comparativo = st.session_state.get("trend_hybrid_comparativo")
+    if comparativo is not None:
+        melhor_divisao = st.session_state.get("trend_hybrid_melhor_divisao")
+        st.success(f"Melhor divisão na amostra: {melhor_divisao[0]}+{melhor_divisao[1]}")
+        st.dataframe(comparativo, hide_index=True, width="stretch")
+
+    resultado_unico = st.session_state.get("trend_hybrid_backtest_unico")
+    if resultado_unico is not None:
+        st.dataframe(pd.DataFrame([resultado_unico.resumo]), hide_index=True, width="stretch")
+        st.dataframe(resultado_unico.detalhes.tail(100), hide_index=True, width="stretch")
+        st.download_button(
+            "EXPORTAR BACKTEST TREND HYBRID CSV",
+            resultado_unico.csv_bytes(),
+            "backtest_trend_hybrid.csv",
+            "text/csv",
+            width="stretch",
+        )
+    else:
+        st.info("Execute o backtest para medir acertos 11+ a 15 do Trend Hybrid Engine sem vazamento temporal.")
+
+    st.warning(
+        "Trend Hybrid Engine é uma análise estatística sobre a base histórica. A Lotofácil é aleatória: "
+        "não há garantia de prêmio ou retorno financeiro. Jogue com responsabilidade."
+    )
+
+
 def render_rodape_institucional() -> None:
     st.markdown(
         """
@@ -1100,20 +1237,33 @@ def main() -> None:
         meta = metadados_publicos(df, info, info_resultado)
     render_card_publico(df, meta)
 
-    abas = st.tabs(["Gerar Jogos", "Estratégia Inteligente", "Laboratório Estatístico", "Backtest", "Conferir Jogos", "Ranking das Dezenas", "Configurações"])
+    abas = st.tabs(
+        [
+            "Gerar Jogos",
+            "Trend Hybrid 9+6",
+            "Estratégia Inteligente",
+            "Laboratório Estatístico",
+            "Backtest",
+            "Conferir Jogos",
+            "Ranking das Dezenas",
+            "Configurações",
+        ]
+    )
     with abas[0]:
         render_resultado(df, meta, configuracao_atual())
     with abas[1]:
-        render_estrategia_inteligente(df)
+        render_trend_hybrid(df)
     with abas[2]:
-        render_laboratorio_estatistico(df)
+        render_estrategia_inteligente(df)
     with abas[3]:
-        render_backtest(df)
+        render_laboratorio_estatistico(df)
     with abas[4]:
-        render_conferencia(df)
+        render_backtest(df)
     with abas[5]:
-        render_ranking(df)
+        render_conferencia(df)
     with abas[6]:
+        render_ranking(df)
+    with abas[7]:
         render_configuracoes()
     render_rodape_institucional()
 

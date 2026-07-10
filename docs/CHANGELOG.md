@@ -1,5 +1,36 @@
 # Changelog
 
+## Trend Hybrid Engine 9+6 — novo motor de geração determinístico
+
+Nova funcionalidade aditiva: motor de geração de bilhete baseado em Trend
+Score (9 dezenas do último concurso + 6 que não saíram, sempre pelas de
+maior score, nunca por sorteio aleatório puro). Não altera nenhuma regra do
+Motor Elite V2, do Elite Score ou de qualquer motor existente.
+
+### Adicionado
+
+- `src/models/trend_hybrid.py`: `PesosTendencia`, `IndicadoresDezena`,
+  `DezenaPontuada`, `BilheteTrendHybrid`.
+- `src/core/trend_hybrid_engine.py`: cálculo do Trend Score (estado
+  incremental single-pass, sem vazamento temporal), separação Grupo A/Grupo
+  B e seleção do bilhete com validação via `ConfiguracaoMotor`/`validar_jogo`
+  já existentes.
+- `src/core/trend_hybrid_backtest.py`: backtest temporal e otimização de
+  divisão (8+7, 9+6, 10+5, 11+4).
+- `src/ai/trend_hybrid_explainer.py`: explicação por dezena (selecionada e
+  descartada), sem recalcular nenhum valor.
+- `src/services/trend_hybrid_service.py`: orquestração para a UI.
+- `app.py`: nova aba "Trend Hybrid 9+6" (`render_trend_hybrid`).
+- `scripts/backtest_trend_hybrid.py`: backtest completo offline, salva
+  relatório em `exports/`.
+- `docs/TREND_HYBRID_ENGINE.md`: documentação completa do algoritmo, pesos,
+  resultados do backtest e pontos de extensão para IA futura (não
+  implementados nesta fase).
+- Testes: `tests/test_core_trend_hybrid_engine.py`,
+  `tests/test_core_trend_hybrid_backtest.py`,
+  `tests/test_ai_trend_hybrid_explainer.py`,
+  `tests/test_services_trend_hybrid_service.py`.
+
 ## UX Final Simplification — fluxo único da tela pública
 
 Reestruturação de UI/UX pura na tela pública: nenhuma regra do Motor Elite,
