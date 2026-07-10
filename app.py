@@ -1072,14 +1072,26 @@ def render_trend_hybrid(df: pd.DataFrame) -> None:
     peso_atraso = colunas_controle[1].slider("Peso do atraso (adaptativo, 0–10%)", 0.0, 0.10, 0.05, 0.01, key="trend_peso_atraso")
     pesos = PesosTendencia(peso_atraso=float(peso_atraso))
 
-    bilhete = trend_hybrid_bilhete_cached(df, divisao, pesos)
+    gerar = st.button("GERAR BILHETE TREND HYBRID", key="gerar_trend_hybrid", type="primary", width="stretch")
+    assinatura_atual = (divisao, peso_atraso)
+    if (
+        gerar
+        or "trend_hybrid_bilhete" not in st.session_state
+        or st.session_state.get("trend_hybrid_assinatura") != assinatura_atual
+    ):
+        st.session_state.trend_hybrid_bilhete = trend_hybrid_bilhete_cached(df, divisao, pesos)
+        st.session_state.trend_hybrid_assinatura = assinatura_atual
+
+    bilhete = st.session_state.trend_hybrid_bilhete
     explicacao = trend_hybrid_service.explicar(bilhete)
 
     st.markdown(
         f'<div class="wallet-badge"><span>TREND HYBRID {divisao[0]}+{divisao[1]}</span></div>',
         unsafe_allow_html=True,
     )
-    st.write(" · ".join(f"{d:02d}" for d in bilhete.dezenas))
+    st.caption("Confira estas dezenas na hora de preencher o volante na lotérica:")
+    bolas = "".join(f'<span class="elite-ball">{d:02d}</span>' for d in bilhete.dezenas)
+    st.markdown(f'<div class="elite-balls">{bolas}</div>', unsafe_allow_html=True)
     metricas = st.columns(4)
     metricas[0].metric("Trend Score total", f"{bilhete.trend_score_total:.1f}")
     metricas[1].metric("Grupo A (último concurso)", len(bilhete.grupo_a_selecionadas))
