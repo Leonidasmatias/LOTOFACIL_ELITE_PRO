@@ -40,11 +40,18 @@ from __future__ import annotations
 from collections import Counter, deque
 from dataclasses import dataclass, field
 from itertools import combinations
+import random
 
 import pandas as pd
 
 from .estatisticas import TODAS_DEZENAS
-from ..models.trend_hybrid import BilheteTrendHybrid, DezenaPontuada, IndicadoresDezena, PesosTendencia
+from ..models.trend_hybrid import (
+    BilheteSorteioGrupos,
+    BilheteTrendHybrid,
+    DezenaPontuada,
+    IndicadoresDezena,
+    PesosTendencia,
+)
 from ..repository.base_repository import COLUNAS_DEZENAS
 from ..validacao_jogos import ConfiguracaoMotor, validar_jogo
 
@@ -353,3 +360,78 @@ def gerar_bilhete_trend_hybrid(
     indicadores, ultimo_jogo = indicadores_para_proximo_concurso(df)
     pontuacoes = calcular_trend_scores(indicadores, pesos)
     return selecionar_bilhete(pontuacoes, ultimo_jogo, divisao, configuracao)
+
+
+def obter_grupo_a_grupo_b(df: pd.DataFrame) -> tuple[frozenset[int], frozenset[int]]:
+    """Devolve (Grupo A, Grupo B) do proximo concurso a prever: Grupo A =
+    as 15 dezenas do ultimo concurso conhecido; Grupo B = as 10 que nao
+    sairam. Nao calcula Trend Score -- so a divisao estrutural, usada tanto
+    por ``selecionar_bilhete`` quanto pelo sorteio aleatorio abaixo."""
+    dados = df.sort_values("Concurso").reset_index(drop=True)
+    if dados.empty:
+        raise ValueError("A base historica esta vazia.")
+    ultimo_jogo = frozenset(int(v) for v in dados.iloc[-1][COLUNAS_DEZENAS])
+    grupo_b = frozenset(d for d in TODAS_DEZENAS if d not in ultimo_jogo)
+    return ultimo_jogo, grupo_b
+
+
+def sortear_bilhete_aleatorio_grupos(
+    df: pd.DataFrame,
+    divisao: tuple[int, int] = DIVISAO_PADRAO,
+    configuracao: ConfiguracaoMotor | None = None,
+    semente: int | None = None,
+    numero_sorteio: int = 0,
+    tentativas_maximas: int = 5000,
+) -> BilheteSorteioGrupos:
+    """Sorteia um bilhete ALEATORIAMENTE dentro dos grupos: ``divisao[0]``
+    dezenas escolhidas ao acaso entre as do ultimo concurso (Grupo A) e
+    ``divisao[1]`` escolhidas ao acaso entre as que nao sairam (Grupo B).
+
+    Diferente de ``gerar_bilhete_trend_hybrid`` (que sempre escolhe as de
+    maior Trend Score -- mesma entrada, mesma saida), aqui a escolha dentro
+    de cada grupo e puramente aleatoria: passar uma ``semente`` diferente
+    (ou ``None``, que usa a fonte de aleatoriedade do sistema) produz uma
+    combinacao diferente a cada chamada. Pensado para o botao "gerar" dar
+    uma carteira nova a cada clique, mantendo apenas a estrutura de
+    repeticao da divisao escolhida (ex.: 9 do ultimo concurso + 6 que nao
+    sairam).
+
+    Ainda respeita ``ConfiguracaoMotor``/``validar_jogo`` (soma, pares,
+    sequencia): tenta novas amostras (ate ``tentativas_maximas``) ate
+    encontrar uma combinacao valida, em vez de devolver qualquer sorteio
+    bruto -- mesma logica de tentativa-e-validacao usada em
+    ``motor_elite_v2.gerar_jogos_v2``.
+    """
+    n_a, n_b = divisao
+    if n_a + n_b != 15:
+        raise ValueError("A divisao (Grupo A + Grupo B) precisa somar 15.")
+    if n_a <= 0 or n_b <= 0:
+        raise ValueError("Cada grupo precisa contribuir com pelo menos 1 dezena.")
+    config = configuracao or ConfiguracaoMotor()
+    config.validar()
+
+    grupo_a, grupo_b = obter_grupo_a_grupo_b(df)
+    if len(grupo_a) < n_a or len(grupo_b) < n_b:
+        raise ValueError("Grupos insuficientes para a divisao solicitada (o Grupo A precisa ter 15 dezenas e o Grupo B, 10).")
+
+    rng = random.Random(semente)
+    lista_a, lista_b = sorted(grupo_a), sorted(grupo_b)
+    for _ in range(tentativas_maximas):
+        escolhidas_a = tuple(sorted(rng.sample(lista_a, n_a)))
+        escolhidas_b = tuple(sorted(rng.sample(lista_b, n_b)))
+        jogo = tuple(sorted(escolhidas_a + escolhidas_b))
+        try:
+            validar_jogo(jogo, config, grupo_a)
+        except ValueError:
+            continue
+        return BilheteSorteioGrupos(
+            dezenas=jogo,
+            divisao=(n_a, n_b),
+            grupo_a_selecionadas=escolhidas_a,
+            grupo_b_selecionadas=escolhidas_b,
+            semente=semente,
+            numero_sorteio=numero_sorteio,
+        )
+    raise ValueError(
+        "Nao foi possivel sortear um bilhete valido dentro do limite de tentativas -- revise ConfiguracaoMotor."
+    )

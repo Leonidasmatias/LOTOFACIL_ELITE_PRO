@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from src.ai.trend_hybrid_explainer import ExplicacaoBilheteTrendHybrid
 from src.core.trend_hybrid_engine import DIVISOES_SUPORTADAS
-from src.models.trend_hybrid import BilheteTrendHybrid, PesosTendencia
+from src.models.trend_hybrid import BilheteSorteioGrupos, BilheteTrendHybrid, PesosTendencia
 from src.repository.base_repository import CAMINHO_BASE_PADRAO, carregar_base
 from src.services import trend_hybrid_service
 
@@ -66,3 +66,26 @@ def test_otimizar_divisao_devolve_comparativo_e_melhor_divisao() -> None:
     assert len(comparativo) == len(DIVISOES_SUPORTADAS)
     assert melhor_divisao in DIVISOES_SUPORTADAS
     assert set(resultados.keys()) == set(DIVISOES_SUPORTADAS)
+
+
+def test_sortear_bilhete_aleatorio_devolve_bilhete_de_sorteio_valido() -> None:
+    bilhete = trend_hybrid_service.sortear_bilhete_aleatorio(_base(), semente=123, numero_sorteio=1)
+    assert isinstance(bilhete, BilheteSorteioGrupos)
+    assert len(bilhete.dezenas) == 15
+    assert len(bilhete.grupo_a_selecionadas) == 9
+    assert len(bilhete.grupo_b_selecionadas) == 6
+    assert bilhete.semente == 123
+    assert bilhete.numero_sorteio == 1
+
+
+def test_sortear_bilhete_aleatorio_muda_a_cada_chamada_sem_semente_fixa() -> None:
+    df = _base()
+    resultados = {trend_hybrid_service.sortear_bilhete_aleatorio(df, semente=s).dezenas for s in range(1, 8)}
+    assert len(resultados) > 1
+
+
+def test_sortear_bilhete_aleatorio_repete_com_a_mesma_semente() -> None:
+    df = _base()
+    primeiro = trend_hybrid_service.sortear_bilhete_aleatorio(df, semente=55, numero_sorteio=1)
+    segundo = trend_hybrid_service.sortear_bilhete_aleatorio(df, semente=55, numero_sorteio=2)
+    assert primeiro.dezenas == segundo.dezenas

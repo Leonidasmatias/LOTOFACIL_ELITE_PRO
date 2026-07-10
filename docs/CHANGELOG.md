@@ -1,5 +1,35 @@
 # Changelog
 
+## Trend Hybrid Engine 9+6 — botão explícito + modo Sorteio Aleatório (auditável)
+
+Duas melhorias de UX sobre o Trend Hybrid Engine, sem alterar nenhuma regra
+de validação já existente (`ConfiguracaoMotor`/`validar_jogo`):
+
+1. O bilhete deixou de ser montado automaticamente ao abrir a aba — agora
+   depende de um clique explícito em "GERAR BILHETE TREND HYBRID" (mesmo
+   padrão das outras abas do app).
+2. Novo modo **"Sorteio aleatório (novo bilhete a cada clique)"**,
+   selecionável por um `st.radio` ao lado do modo determinístico original
+   ("Recomendação Trend Score"). Sorteia N dezenas aleatórias dentro do
+   Grupo A (último concurso) + as demais dentro do Grupo B (não saíram),
+   validado por `ConfiguracaoMotor`/`validar_jogo` a cada tentativa. Um
+   painel de auditoria (nº do sorteio, semente e horário) confirma
+   visualmente que cada clique gera um resultado novo.
+
+### Adicionado
+
+- `src/models/trend_hybrid.py`: `BilheteSorteioGrupos`.
+- `src/core/trend_hybrid_engine.py`: `obter_grupo_a_grupo_b`,
+  `sortear_bilhete_aleatorio_grupos` (sorteio validado dentro dos grupos,
+  com semente opcional para reprodutibilidade).
+- `src/services/trend_hybrid_service.py`: `sortear_bilhete_aleatorio`
+  (wrapper de orquestração para a UI).
+- `app.py`: seletor de modo (`st.radio`) e painel de auditoria (sorteio nº,
+  semente, horário) na aba "Trend Hybrid 9+6".
+- Testes cobrindo o modo aleatório em
+  `tests/test_core_trend_hybrid_engine.py` e
+  `tests/test_services_trend_hybrid_service.py`.
+
 ## Trend Hybrid Engine 9+6 — novo motor de geração determinístico
 
 Nova funcionalidade aditiva: motor de geração de bilhete baseado em Trend

@@ -19,7 +19,9 @@ from src.core.trend_hybrid_engine import (
     gerar_bilhete_trend_hybrid,
     gerar_trend_scores,
     indicadores_para_proximo_concurso,
+    obter_grupo_a_grupo_b,
     selecionar_bilhete,
+    sortear_bilhete_aleatorio_grupos,
 )
 from src.models.trend_hybrid import PesosTendencia
 from src.repository.base_repository import CAMINHO_BASE_PADRAO, carregar_base
@@ -157,3 +159,61 @@ def test_sem_historico_suficiente_levanta_erro() -> None:
     df_vazio = pd.DataFrame(columns=["Concurso", "Data", *[f"Bola{i}" for i in range(1, 16)]])
     with pytest.raises(ValueError):
         gerar_bilhete_trend_hybrid(df_vazio)
+
+
+def test_obter_grupo_a_grupo_b_tem_15_e_10_dezenas_sem_sobreposicao() -> None:
+    df = _base()
+    grupo_a, grupo_b = obter_grupo_a_grupo_b(df)
+    assert len(grupo_a) == 15
+    assert len(grupo_b) == 10
+    assert grupo_a.isdisjoint(grupo_b)
+    assert grupo_a | grupo_b == set(range(1, 26))
+
+
+def test_sorteio_aleatorio_e_reprodutivel_com_a_mesma_semente() -> None:
+    df = _base()
+    primeiro = sortear_bilhete_aleatorio_grupos(df, semente=42, numero_sorteio=1)
+    segundo = sortear_bilhete_aleatorio_grupos(df, semente=42, numero_sorteio=2)
+    assert primeiro.dezenas == segundo.dezenas
+    assert primeiro.grupo_a_selecionadas == segundo.grupo_a_selecionadas
+    assert primeiro.grupo_b_selecionadas == segundo.grupo_b_selecionadas
+    # numero_sorteio e semente sao metadados de auditoria, nao afetam o sorteio em si.
+    assert primeiro.numero_sorteio == 1
+    assert segundo.numero_sorteio == 2
+
+
+def test_sorteio_aleatorio_varia_entre_sementes_diferentes() -> None:
+    df = _base()
+    resultados = {sortear_bilhete_aleatorio_grupos(df, semente=s).dezenas for s in range(1, 12)}
+    # Sementes diferentes devem produzir, na grande maioria dos casos, bilhetes diferentes.
+    assert len(resultados) > 1
+
+
+def test_sorteio_aleatorio_respeita_a_divisao_grupo_a_grupo_b() -> None:
+    df = _base()
+    grupo_a, grupo_b = obter_grupo_a_grupo_b(df)
+    for divisao in DIVISOES_SUPORTADAS:
+        bilhete = sortear_bilhete_aleatorio_grupos(df, divisao=divisao, semente=7)
+        assert len(bilhete.dezenas) == 15
+        assert len(set(bilhete.dezenas)) == 15
+        assert bilhete.divisao == divisao
+        assert len(bilhete.grupo_a_selecionadas) == divisao[0]
+        assert len(bilhete.grupo_b_selecionadas) == divisao[1]
+        assert set(bilhete.grupo_a_selecionadas) <= grupo_a
+        assert set(bilhete.grupo_b_selecionadas) <= grupo_b
+        validar_jogo(bilhete.dezenas, config_teste(), grupo_a)
+
+
+def test_sorteio_aleatorio_sem_semente_nao_gera_excecao() -> None:
+    df = _base()
+    bilhete = sortear_bilhete_aleatorio_grupos(df, semente=None)
+    assert len(bilhete.dezenas) == 15
+    assert bilhete.semente is None
+
+
+def test_sorteio_aleatorio_divisao_invalida_levanta_erro() -> None:
+    df = _base()
+    with pytest.raises(ValueError):
+        sortear_bilhete_aleatorio_grupos(df, divisao=(9, 5))
+    with pytest.raises(ValueError):
+        sortear_bilhete_aleatorio_grupos(df, divisao=(0, 15))

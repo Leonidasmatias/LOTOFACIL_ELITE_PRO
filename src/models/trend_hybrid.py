@@ -136,3 +136,28 @@ class BilheteTrendHybrid:
             if pontuada.indicadores.dezena == dezena:
                 return pontuada
         raise KeyError(f"Dezena {dezena} nao encontrada nas pontuacoes do bilhete.")
+
+
+@dataclass(frozen=True, slots=True)
+class BilheteSorteioGrupos:
+    """Bilhete sorteado ALEATORIAMENTE dentro dos grupos (Grupo A: as
+    dezenas do ultimo concurso; Grupo B: as que nao sairam) -- sem uso do
+    Trend Score. Diferente de ``BilheteTrendHybrid`` (sempre a mesma
+    recomendacao, pelas de maior score), este modo existe para gerar uma
+    combinacao nova a cada clique, mantendo apenas a estrutura de repeticao
+    da divisao escolhida (ex.: 9 do ultimo concurso + 6 que nao sairam)."""
+
+    dezenas: tuple[int, ...]
+    divisao: tuple[int, int]
+    grupo_a_selecionadas: tuple[int, ...]
+    grupo_b_selecionadas: tuple[int, ...]
+    semente: int | None
+    numero_sorteio: int = 0
+
+    def __post_init__(self) -> None:
+        if len(self.dezenas) != 15:
+            raise ValueError("Um bilhete da Lotofacil precisa ter exatamente 15 dezenas.")
+        if len(set(self.dezenas)) != 15:
+            raise ValueError("O bilhete nao pode conter dezenas duplicadas.")
+        if sum(self.divisao) != 15:
+            raise ValueError("A divisao (Grupo A + Grupo B) precisa somar 15.")

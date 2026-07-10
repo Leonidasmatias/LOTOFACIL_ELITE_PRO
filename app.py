@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+import random
 import re
 import time
 
@@ -1059,8 +1060,8 @@ def trend_hybrid_bilhete_cached(df: pd.DataFrame, divisao: tuple[int, int], peso
 def render_trend_hybrid(df: pd.DataFrame) -> None:
     st.subheader("Trend Hybrid Engine 9+6")
     st.caption(
-        "9 dezenas do último concurso + 6 dezenas que não saíram, sempre pelo maior Trend Score. "
-        "Nada de sorteio aleatório puro: toda dezena escolhida tem uma justificativa estatística explícita."
+        "9 dezenas do último concurso + 6 dezenas que não saíram. Escolha o modo de geração: sorteio "
+        "aleatório (um bilhete novo a cada clique, dentro dos grupos) ou recomendação fixa pelo maior Trend Score."
     )
 
     colunas_controle = st.columns(2)
@@ -1072,67 +1073,137 @@ def render_trend_hybrid(df: pd.DataFrame) -> None:
     peso_atraso = colunas_controle[1].slider("Peso do atraso (adaptativo, 0–10%)", 0.0, 0.10, 0.05, 0.01, key="trend_peso_atraso")
     pesos = PesosTendencia(peso_atraso=float(peso_atraso))
 
-    gerar = st.button("GERAR BILHETE TREND HYBRID", key="gerar_trend_hybrid", type="primary", width="stretch")
-    assinatura_atual = (divisao, peso_atraso)
-    if (
-        gerar
-        or "trend_hybrid_bilhete" not in st.session_state
-        or st.session_state.get("trend_hybrid_assinatura") != assinatura_atual
-    ):
-        st.session_state.trend_hybrid_bilhete = trend_hybrid_bilhete_cached(df, divisao, pesos)
-        st.session_state.trend_hybrid_assinatura = assinatura_atual
-
-    bilhete = st.session_state.trend_hybrid_bilhete
-    explicacao = trend_hybrid_service.explicar(bilhete)
-
-    st.markdown(
-        f'<div class="wallet-badge"><span>TREND HYBRID {divisao[0]}+{divisao[1]}</span></div>',
-        unsafe_allow_html=True,
+    modo = st.radio(
+        "Modo de geração",
+        ["Sorteio aleatório (novo bilhete a cada clique)", "Recomendação Trend Score (fixa)"],
+        key="trend_modo_geracao",
+        horizontal=True,
     )
-    st.caption("Confira estas dezenas na hora de preencher o volante na lotérica:")
-    bolas = "".join(f'<span class="elite-ball">{d:02d}</span>' for d in bilhete.dezenas)
-    st.markdown(f'<div class="elite-balls">{bolas}</div>', unsafe_allow_html=True)
-    metricas = st.columns(4)
-    metricas[0].metric("Trend Score total", f"{bilhete.trend_score_total:.1f}")
-    metricas[1].metric("Grupo A (último concurso)", len(bilhete.grupo_a_selecionadas))
-    metricas[2].metric("Grupo B (não saiu)", len(bilhete.grupo_b_selecionadas))
-    metricas[3].metric("Margem de busca", bilhete.margem_busca)
-    st.info(explicacao.resumo)
+    modo_aleatorio = modo.startswith("Sorteio")
 
-    st.download_button(
-        "EXPORTAR BILHETE CSV",
-        pd.DataFrame([{f"Bola{i}": d for i, d in enumerate(bilhete.dezenas, 1)}]).to_csv(index=False).encode("utf-8-sig"),
-        "trend_hybrid_bilhete.csv",
-        "text/csv",
-        width="stretch",
-    )
+    if modo_aleatorio:
+        st.caption(
+            "A cada clique: 9 dezenas sorteadas aleatoriamente dentro do Grupo A (as 15 do último concurso) + "
+            "6 sorteadas aleatoriamente dentro do Grupo B (as que não saíram). O bilhete é validado (soma, "
+            "pares/ímpares, distribuição) antes de aparecer -- e o painel de auditoria abaixo prova que o "
+            "resultado muda a cada geração."
+        )
+        gerar_aleatorio = st.button(
+            "GERAR BILHETE TREND HYBRID", key="gerar_trend_hybrid_aleatorio", type="primary", width="stretch"
+        )
+        if gerar_aleatorio or "trend_aleatorio_bilhete" not in st.session_state:
+            contador = st.session_state.get("trend_aleatorio_contador", 0) + 1
+            semente = random.randint(1, 2_000_000_000)
+            st.session_state.trend_aleatorio_bilhete = trend_hybrid_service.sortear_bilhete_aleatorio(
+                df, divisao=divisao, semente=semente, numero_sorteio=contador
+            )
+            st.session_state.trend_aleatorio_contador = contador
+            st.session_state.trend_aleatorio_horario = datetime.now().strftime("%H:%M:%S")
 
-    st.markdown("#### Por que cada dezena foi escolhida")
-    tabela_selecionadas = pd.DataFrame(
-        [
-            {
-                "Dezena": e.dezena,
-                "Grupo": e.grupo,
-                "Trend Score": round(e.trend_score, 2),
-                "Freq. últimos 10": e.frequencia_ult10,
-                "Atraso": e.atraso,
-                "Momentum": round(e.momentum, 4),
-                "Regularidade": round(e.regularidade, 4),
-                "Motivo": e.motivo,
-            }
-            for e in explicacao.selecionadas
-        ]
-    )
-    st.dataframe(tabela_selecionadas, hide_index=True, width="stretch")
+        bilhete_aleatorio = st.session_state.trend_aleatorio_bilhete
+        st.markdown(
+            f'<div class="wallet-badge"><span>TREND HYBRID {divisao[0]}+{divisao[1]} · ALEATÓRIO</span></div>',
+            unsafe_allow_html=True,
+        )
+        st.success(
+            f"🔎 Auditoria: sorteio nº {bilhete_aleatorio.numero_sorteio} · semente {bilhete_aleatorio.semente} · "
+            f"gerado às {st.session_state.get('trend_aleatorio_horario', '--:--:--')} "
+            f"(nesta sessão: {st.session_state.get('trend_aleatorio_contador', 1)} bilhete(s) gerado(s)). "
+            "Clique novamente em GERAR para conferir que o resultado muda."
+        )
+        st.caption("Confira estas dezenas na hora de preencher o volante na lotérica:")
+        bolas = "".join(f'<span class="elite-ball">{d:02d}</span>' for d in bilhete_aleatorio.dezenas)
+        st.markdown(f'<div class="elite-balls">{bolas}</div>', unsafe_allow_html=True)
 
-    with st.expander("Dezenas descartadas e motivo"):
-        tabela_descartadas = pd.DataFrame(
+        metricas = st.columns(3)
+        metricas[0].metric("Grupo A (último concurso)", len(bilhete_aleatorio.grupo_a_selecionadas))
+        metricas[1].metric("Grupo B (não saiu)", len(bilhete_aleatorio.grupo_b_selecionadas))
+        metricas[2].metric("Sorteios gerados nesta sessão", st.session_state.get("trend_aleatorio_contador", 1))
+
+        colunas_grupos = st.columns(2)
+        colunas_grupos[0].markdown(
+            "**Grupo A sorteado (do último concurso):** "
+            + ", ".join(f"{d:02d}" for d in bilhete_aleatorio.grupo_a_selecionadas)
+        )
+        colunas_grupos[1].markdown(
+            "**Grupo B sorteado (não saiu):** "
+            + ", ".join(f"{d:02d}" for d in bilhete_aleatorio.grupo_b_selecionadas)
+        )
+
+        st.download_button(
+            "EXPORTAR BILHETE CSV",
+            pd.DataFrame([{f"Bola{i}": d for i, d in enumerate(bilhete_aleatorio.dezenas, 1)}]).to_csv(index=False).encode("utf-8-sig"),
+            "trend_hybrid_bilhete_aleatorio.csv",
+            "text/csv",
+            width="stretch",
+        )
+        st.info(
+            "Este modo não usa Trend Score -- é sorteio aleatório validado (soma, pares/ímpares, distribuição) "
+            "dentro da estrutura 9 (Grupo A) + 6 (Grupo B). Para a recomendação fixa baseada nos indicadores "
+            "estatísticos, escolha 'Recomendação Trend Score (fixa)' acima."
+        )
+    else:
+        gerar = st.button("GERAR BILHETE TREND HYBRID", key="gerar_trend_hybrid", type="primary", width="stretch")
+        assinatura_atual = (divisao, peso_atraso)
+        if (
+            gerar
+            or "trend_hybrid_bilhete" not in st.session_state
+            or st.session_state.get("trend_hybrid_assinatura") != assinatura_atual
+        ):
+            st.session_state.trend_hybrid_bilhete = trend_hybrid_bilhete_cached(df, divisao, pesos)
+            st.session_state.trend_hybrid_assinatura = assinatura_atual
+
+        bilhete = st.session_state.trend_hybrid_bilhete
+        explicacao = trend_hybrid_service.explicar(bilhete)
+
+        st.markdown(
+            f'<div class="wallet-badge"><span>TREND HYBRID {divisao[0]}+{divisao[1]}</span></div>',
+            unsafe_allow_html=True,
+        )
+        st.caption("Confira estas dezenas na hora de preencher o volante na lotérica:")
+        bolas = "".join(f'<span class="elite-ball">{d:02d}</span>' for d in bilhete.dezenas)
+        st.markdown(f'<div class="elite-balls">{bolas}</div>', unsafe_allow_html=True)
+        metricas = st.columns(4)
+        metricas[0].metric("Trend Score total", f"{bilhete.trend_score_total:.1f}")
+        metricas[1].metric("Grupo A (último concurso)", len(bilhete.grupo_a_selecionadas))
+        metricas[2].metric("Grupo B (não saiu)", len(bilhete.grupo_b_selecionadas))
+        metricas[3].metric("Margem de busca", bilhete.margem_busca)
+        st.info(explicacao.resumo)
+
+        st.download_button(
+            "EXPORTAR BILHETE CSV",
+            pd.DataFrame([{f"Bola{i}": d for i, d in enumerate(bilhete.dezenas, 1)}]).to_csv(index=False).encode("utf-8-sig"),
+            "trend_hybrid_bilhete.csv",
+            "text/csv",
+            width="stretch",
+        )
+
+        st.markdown("#### Por que cada dezena foi escolhida")
+        tabela_selecionadas = pd.DataFrame(
             [
-                {"Dezena": e.dezena, "Grupo": e.grupo, "Trend Score": round(e.trend_score, 2), "Motivo": e.motivo}
-                for e in explicacao.descartadas
+                {
+                    "Dezena": e.dezena,
+                    "Grupo": e.grupo,
+                    "Trend Score": round(e.trend_score, 2),
+                    "Freq. últimos 10": e.frequencia_ult10,
+                    "Atraso": e.atraso,
+                    "Momentum": round(e.momentum, 4),
+                    "Regularidade": round(e.regularidade, 4),
+                    "Motivo": e.motivo,
+                }
+                for e in explicacao.selecionadas
             ]
         )
-        st.dataframe(tabela_descartadas, hide_index=True, width="stretch")
+        st.dataframe(tabela_selecionadas, hide_index=True, width="stretch")
+
+        with st.expander("Dezenas descartadas e motivo"):
+            tabela_descartadas = pd.DataFrame(
+                [
+                    {"Dezena": e.dezena, "Grupo": e.grupo, "Trend Score": round(e.trend_score, 2), "Motivo": e.motivo}
+                    for e in explicacao.descartadas
+                ]
+            )
+            st.dataframe(tabela_descartadas, hide_index=True, width="stretch")
 
     st.markdown("#### Ranking completo por Trend Score")
     ranking = trend_hybrid_service.gerar_ranking_trend_score(df, pesos=pesos)

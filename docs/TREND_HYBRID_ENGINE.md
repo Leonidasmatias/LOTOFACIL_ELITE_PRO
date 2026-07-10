@@ -108,6 +108,46 @@ normalizados, escalada para 0–100.
    divisões, ou seja, a combinação pura já é válida na grande maioria dos
    casos.
 
+## Modo Sorteio Aleatório (novo bilhete a cada clique)
+
+A seleção pelo Trend Score descrita acima é **determinística**: para o
+mesmo histórico, divisão e pesos, `gerar_bilhete_trend_hybrid` sempre
+devolve exatamente o mesmo bilhete. Isso é o comportamento correto para a
+*recomendação* do motor, mas gerava a impressão de que o botão "GERAR
+BILHETE TREND HYBRID" não estava fazendo nada ao ser clicado várias vezes
+seguidas.
+
+Por isso a UI (aba "Trend Hybrid 9+6") oferece um segundo modo, opcional,
+selecionável por um `st.radio` acima do botão:
+
+- **Sorteio aleatório (novo bilhete a cada clique)** — modo padrão.
+  `sortear_bilhete_aleatorio_grupos` (`src/core/trend_hybrid_engine.py`) e o
+  wrapper `sortear_bilhete_aleatorio` (`src/services/trend_hybrid_service.py`)
+  sorteiam, **sem usar Trend Score**, `N` dezenas aleatórias dentro do Grupo A
+  (as 15 do último concurso) e `15-N` dezenas aleatórias dentro do Grupo B
+  (as que não saíram), com `random.Random(semente)`. Cada combinação
+  candidata é validada com `ConfiguracaoMotor`/`validar_jogo` (soma,
+  pares/ímpares, sequência máxima) antes de ser aceita, com nova tentativa
+  em caso de falha (até `tentativas_maximas`, padrão 5000) — o mesmo padrão
+  de retry-até-válido usado em `motor_elite_v2.gerar_jogos_v2`.
+- **Recomendação Trend Score (fixa)** — o comportamento original: sempre a
+  combinação de maior Trend Score dentro da divisão escolhida.
+
+A cada clique em "GERAR BILHETE TREND HYBRID" no modo aleatório, a UI gera
+uma nova semente (`random.randint(1, 2_000_000_000)`), incrementa um
+contador de sorteios (`numero_sorteio`) guardado em
+`st.session_state.trend_aleatorio_contador` e registra o horário da geração
+— esses três valores (nº do sorteio, semente e horário) aparecem em um
+painel de auditoria na tela, permitindo confirmar visualmente que cada
+clique produz um resultado novo. `BilheteSorteioGrupos`
+(`src/models/trend_hybrid.py`) é o dataclass usado para esse modo — mesma
+validação estrutural de 15 dezenas únicas de `BilheteTrendHybrid`, mas sem
+os campos de pontuação (não faz sentido "explicar por Trend Score" uma
+dezena que foi sorteada, não pontuada).
+
+Com a mesma semente, o sorteio é reprodutível (útil para testes); sem
+semente (`semente=None`), usa a entropia padrão do processo.
+
 ## Sem vazamento temporal
 
 Tanto a geração "de hoje" quanto o backtest usam a mesma classe de estado
@@ -205,7 +245,10 @@ idealmente, mais concursos históricos para reduzir o risco de overfitting).
 ## Testes
 
 - `tests/test_core_trend_hybrid_engine.py` — Trend Score, validade e
-  determinismo do bilhete, tratamento de divisões/configurações inválidas.
+  determinismo do bilhete, tratamento de divisões/configurações inválidas,
+  e (modo aleatório) reprodutibilidade com a mesma semente, variação entre
+  sementes diferentes, tamanhos de Grupo A/B e validação para todas as
+  divisões suportadas, e erros para divisões inválidas.
 - `tests/test_core_trend_hybrid_backtest.py` — ausência de vazamento
   temporal, forma do resultado do backtest, determinismo, otimização de
   divisão.

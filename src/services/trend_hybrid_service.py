@@ -22,8 +22,9 @@ from ..core.trend_hybrid_engine import (
     MOTOR_TREND_HYBRID,
     gerar_bilhete_trend_hybrid,
     gerar_trend_scores,
+    sortear_bilhete_aleatorio_grupos,
 )
-from ..models.trend_hybrid import BilheteTrendHybrid, PesosTendencia
+from ..models.trend_hybrid import BilheteSorteioGrupos, BilheteTrendHybrid, PesosTendencia
 from ..validacao_jogos import ConfiguracaoMotor
 
 
@@ -44,6 +45,22 @@ def gerar_bilhete_do_dia(
     """Gera o bilhete Trend Hybrid (divisão Grupo A / Grupo B configurável,
     padrão 9+6) para o próximo concurso ainda não sorteado."""
     return gerar_bilhete_trend_hybrid(df, divisao=divisao, pesos=pesos, configuracao=configuracao)
+
+
+def sortear_bilhete_aleatorio(
+    df: pd.DataFrame,
+    divisao: tuple[int, int] = DIVISAO_PADRAO,
+    configuracao: ConfiguracaoMotor | None = None,
+    semente: int | None = None,
+    numero_sorteio: int = 0,
+) -> BilheteSorteioGrupos:
+    """Sorteia um bilhete novo a cada chamada: N dezenas aleatórias entre as
+    do último concurso (Grupo A) + as demais aleatórias entre as que não
+    saíram (Grupo B). Sem Trend Score -- para gerar uma carteira diferente
+    a cada clique do botão "gerar"."""
+    return sortear_bilhete_aleatorio_grupos(
+        df, divisao=divisao, configuracao=configuracao, semente=semente, numero_sorteio=numero_sorteio
+    )
 
 
 def gerar_ranking_trend_score(df: pd.DataFrame, pesos: PesosTendencia | None = None) -> pd.DataFrame:
