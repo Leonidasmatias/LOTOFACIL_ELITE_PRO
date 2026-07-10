@@ -4,6 +4,18 @@ Aplicação Streamlit para medir estratégias estatísticas da Lotofácil e apoi
 
 > A Lotofácil é aleatória. O sistema não garante acertos, prêmio ou retorno financeiro. Resultados históricos e valores simulados não representam promessa de desempenho futuro. Jogue com responsabilidade.
 
+## Trend Hybrid Engine 9+6
+
+Aba **Trend Hybrid 9+6**: motor de geração determinístico (sem sorteio
+aleatório) que combina 9 dezenas do último concurso (Grupo A) com 6 dezenas
+que não saíram (Grupo B), sempre escolhendo pelo maior **Trend Score**
+(frequência em várias janelas, atraso, regularidade, momentum, sequência
+consecutiva e persistência). Inclui explicação por dezena (selecionada e
+descartada), backtest sem vazamento temporal e comparação entre as divisões
+8+7, 9+6, 10+5 e 11+4. Detalhes completos do algoritmo, pesos e resultados do
+backtest: `docs/TREND_HYBRID_ENGINE.md`. Backtest completo offline:
+`python scripts/backtest_trend_hybrid.py`.
+
 ## V5 — Inteligência de Dezenas
 
 - Ranking das dezenas nos últimos 20, 50, 100 e 200 concursos.
