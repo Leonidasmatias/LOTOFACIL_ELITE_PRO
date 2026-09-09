@@ -38,8 +38,18 @@ def test_sequencia_maxima() -> None:
     assert sequencia_maxima([1, 2, 3, 7, 8, 10]) == 3
 
 
-@pytest.mark.parametrize("etapa", ["download", "processamento", "escrita", "leitura", "validacao"])
+@pytest.mark.parametrize("etapa", ["download", "processamento", "validacao", "escrita", "fsync"])
 def test_atualizacao_atomica_preserva_base_em_todas_as_falhas(tmp_path, monkeypatch, etapa: str) -> None:
+    """Prova que atualizar_base_local() preserva o arquivo oficial anterior
+    intacto (byte a byte) e nao deixa temporario orfao, qualquer que seja o
+    ponto de falha do pipeline: LF-03 mudou a ordem para
+    validar-antes-de-escrever (a base candidata e validada estritamente
+    DENTRO de baixar_base_oficial_completa, nao mais lida-de-volta-e-
+    revalidada depois de escrita no disco) -- por isso "leitura"/"validacao"
+    como estagios POS-escrita nao existem mais como pontos de falha
+    distintos; "validacao" aqui simula exatamente o que acontece de fato
+    hoje quando validar_base_estrita rejeita o candidato: e
+    baixar_base_oficial_completa quem levanta o ValueError."""
     base = tmp_path / "lotofacil_historico.csv"
     conteudo_original = b"base-local-preservada\n"
     base.write_bytes(conteudo_original)
@@ -52,14 +62,22 @@ def test_atualizacao_atomica_preserva_base_em_todas_as_falhas(tmp_path, monkeypa
             "baixar_base_oficial_completa",
             lambda: (_ for _ in ()).throw(RuntimeError(f"falha de {etapa}")),
         )
+    elif etapa == "validacao":
+        # Reflete o comportamento real: validar_base_estrita roda DENTRO de
+        # baixar_base_oficial_completa, antes de qualquer escrita: uma
+        # rejeicao de validacao se manifesta como esta funcao levantando
+        # ValueError, nunca como uma etapa separada apos escrever no disco.
+        monkeypatch.setattr(
+            carregar_dados,
+            "baixar_base_oficial_completa",
+            lambda: (_ for _ in ()).throw(ValueError("falha de validação")),
+        )
     else:
         monkeypatch.setattr(carregar_dados, "baixar_base_oficial_completa", lambda: dados)
     if etapa == "escrita":
         monkeypatch.setattr(pd.DataFrame, "to_csv", lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("falha de escrita")))
-    if etapa == "leitura":
-        monkeypatch.setattr(carregar_dados.pd, "read_csv", lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("falha de leitura")))
-    if etapa == "validacao":
-        monkeypatch.setattr(carregar_dados, "validar_base", lambda _df: (_ for _ in ()).throw(ValueError("falha de validação")))
+    if etapa == "fsync":
+        monkeypatch.setattr(carregar_dados.os, "fsync", lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("falha de fsync")))
 
     assert carregar_dados.atualizar_base_local() is False
     assert base.read_bytes() == conteudo_original

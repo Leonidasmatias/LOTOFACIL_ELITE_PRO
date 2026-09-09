@@ -8,7 +8,10 @@ import shutil
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
+import numpy as np
 import pandas as pd
+
+from ..core.lotofacil_contract import ContratoLotofacilError, validar_resultado
 
 
 RAIZ_PROJETO = Path(__file__).resolve().parents[2]
@@ -136,6 +139,151 @@ def validar_base(df: pd.DataFrame) -> pd.DataFrame:
     return dados.reset_index(drop=True)
 
 
+def _parse_inteiro_externo(valor: object, rotulo: str) -> int:
+    """Parser EXPLICITO do formato de origem externa (API CAIXA), usado
+    SOMENTE ao ler a resposta JSON crua -- ANTES de qualquer valor entrar no
+    DataFrame candidato. A API da CAIXA documentadamente pode serializar
+    numeros como texto decimal, com ou sem zeros a esquerda (ex.: "01",
+    "3780"); este parser aceita especificamente esse formato.
+
+    NAO deve ser usado para validar celulas de um DataFrame ja construido
+    -- essa e a responsabilidade de ``_inteiro_canonico_estrito``, mais
+    estrita, usada exclusivamente por ``validar_base_estrita``.
+
+    Rejeita EXPLICITAMENTE bool/``numpy.bool_``, float/``numpy.floating``
+    (mesmo com valor inteiro, ex.: 15.0 ou "1.0"), None, string vazia e
+    qualquer string que nao seja puramente numerica. Nunca trunca."""
+    if isinstance(valor, (bool, np.bool_)):
+        raise ValueError(f"{rotulo}: valor booleano nao e um inteiro valido ({valor!r}).")
+    if isinstance(valor, (int, np.integer)):
+        return int(valor)
+    if isinstance(valor, str) and valor.strip().isdigit():
+        return int(valor.strip())
+    raise ValueError(f"{rotulo}: valor {valor!r} ({type(valor).__name__}) nao e um inteiro valido.")
+
+
+def _inteiro_canonico_estrito(valor: object, rotulo: str) -> int:
+    """Checagem de TIPO CANONICO, usada exclusivamente dentro de
+    ``validar_base_estrita`` sobre celulas de um DataFrame candidato que ja
+    deveria ter passado pelo parser explicito de fonte externa
+    (``_parse_inteiro_externo``). Ao contrario dele, esta funcao e mais
+    estrita e NAO aceita representacao textual: exige ``int`` nativo ou
+    ``numpy.integer`` real (o tipo que o pandas usa em colunas inteiras --
+    NAO e subclasse de ``int`` do Python, por isso precisa de checagem
+    explicita). Rejeita EXPLICITAMENTE bool/``numpy.bool_`` (idem: nao e
+    subclasse de ``bool``), string (mesmo puramente numerica, ex.: "5" ou
+    "05"), float/``numpy.floating`` (mesmo 5.0) e None -- se qualquer um
+    desses chegar aqui, e um erro de canonicalizacao ANTES desta fronteira,
+    nao algo para reparsear silenciosamente agora."""
+    if isinstance(valor, (bool, np.bool_)):
+        raise ValueError(f"{rotulo}: valor booleano nao e um inteiro canonico valido ({valor!r}).")
+    if isinstance(valor, (int, np.integer)):
+        return int(valor)
+    raise ValueError(
+        f"{rotulo}: valor {valor!r} ({type(valor).__name__}) nao e um inteiro canonico valido "
+        "(strings/float/None nao sao aceitos nesta fronteira -- devem ser convertidos antes)."
+    )
+
+
+def validar_base_estrita(
+    df: pd.DataFrame,
+    exigir_sequencia_continua: bool = True,
+) -> pd.DataFrame:
+    """Validacao estrita (fail-closed) da fronteira de ingestao externa.
+
+    Ao contrario de ``validar_base`` (tolerante -- usada na leitura de
+    rotina do arquivo local ja confiavel, ex.: ``carregar_base``, chamada a
+    cada carregamento de pagina), esta funcao e a UNICA autoridade usada
+    antes de persistir dados vindos de fonte externa (CAIXA) no CSV
+    historico oficial (ver ``baixar_base_oficial_completa``). Nunca corrige
+    silenciosamente: nenhuma linha e descartada, nenhuma coercao silenciosa
+    de tipo, nenhum concurso duplicado e resolvido automaticamente -- tudo
+    isso levanta ``ValueError`` com uma mensagem explicita e rastreavel
+    (linha e motivo). Reutiliza ``validar_resultado`` (contrato LF-02) como
+    autoridade para quantidade/tipo/unicidade/faixa das dezenas -- nao
+    duplica esses invariantes manualmente.
+
+    ``exigir_sequencia_continua`` (padrao ``True``): a unica chamadora real
+    hoje (``baixar_base_oficial_completa``) monta a serie HISTORICA
+    COMPLETA da Lotofacil, e uma lacuna interna na sequencia de concursos
+    ali invalida o dataset candidato inteiro. Um eventual caller futuro que
+    precise validar apenas um FRAGMENTO/janela parcial da serie (nao a base
+    completa) deve passar ``False`` explicitamente para essa checagem
+    especifica de continuidade -- as demais checagens (tipo, unicidade,
+    faixa, duplicidade de concurso) continuam valendo sempre,
+    incondicionalmente.
+    """
+    if df is None:
+        raise ValueError("Base candidata a persistencia nao pode ser None.")
+    faltantes = [col for col in COLUNAS_OBRIGATORIAS if col not in df.columns]
+    if faltantes:
+        raise ValueError(f"Base candidata sem colunas obrigatorias: {faltantes}")
+
+    dados = df[COLUNAS_OBRIGATORIAS].reset_index(drop=True)
+    if dados.empty:
+        raise ValueError("Base candidata a persistencia esta vazia.")
+
+    concursos_vistos: dict[int, int] = {}
+    linhas_normalizadas: list[dict[str, object]] = []
+    # itertuples() -- NUNCA iterrows(): iterrows() materializa cada linha
+    # como uma pandas Series, que exige um dtype comum unico para a linha
+    # inteira. Isso faz o pandas fazer upcast SILENCIOSO de valores int64
+    # para float64 sempre que qualquer OUTRA coluna daquela mesma linha for
+    # float/NaN (ex.: uma "Data" invalida faria o "Concurso" da mesma linha
+    # parecer um float, mascarando a causa raiz real). itertuples() preserva
+    # o tipo nativo de cada celula, por coluna, sem essa contaminacao.
+    for linha in dados.itertuples(index=True):
+        indice = linha.Index
+        numero_concurso = _inteiro_canonico_estrito(linha.Concurso, f"Linha {indice}: Concurso")
+        if numero_concurso <= 0:
+            raise ValueError(f"Linha {indice}: Concurso deve ser positivo; recebeu {numero_concurso}.")
+        if numero_concurso in concursos_vistos:
+            raise ValueError(
+                f"Concurso {numero_concurso} duplicado (linhas {concursos_vistos[numero_concurso]} e {indice})."
+            )
+        concursos_vistos[numero_concurso] = indice
+
+        data_concurso = linha.Data
+        if data_concurso is None or (isinstance(data_concurso, float) and pd.isna(data_concurso)):
+            raise ValueError(f"Concurso {numero_concurso}: Data ausente.")
+        data_texto = str(data_concurso).strip()
+        if data_texto == "" or data_texto.lower() == "nan":
+            raise ValueError(f"Concurso {numero_concurso}: Data ausente/invalida ({data_concurso!r}).")
+
+        try:
+            dezenas_brutas = [getattr(linha, coluna) for coluna in COLUNAS_DEZENAS]
+            dezenas_inteiras = [
+                _inteiro_canonico_estrito(valor, f"Concurso {numero_concurso}: dezena")
+                for valor in dezenas_brutas
+            ]
+            dezenas_validadas = validar_resultado(dezenas_inteiras)
+        except (ContratoLotofacilError, ValueError) as erro:
+            raise ValueError(f"Concurso {numero_concurso}: resultado invalido -- {erro}") from erro
+
+        registro: dict[str, object] = {"Concurso": numero_concurso, "Data": data_texto}
+        for posicao, dezena in enumerate(dezenas_validadas, start=1):
+            registro[f"Bola{posicao}"] = dezena
+        linhas_normalizadas.append(registro)
+
+    normalizados = pd.DataFrame(linhas_normalizadas, columns=COLUNAS_OBRIGATORIAS)
+    normalizados = normalizados.sort_values("Concurso").reset_index(drop=True)
+
+    if exigir_sequencia_continua:
+        concursos_ordenados = normalizados["Concurso"].tolist()
+        esperado = list(range(concursos_ordenados[0], concursos_ordenados[-1] + 1))
+        if concursos_ordenados != esperado:
+            faltando = sorted(set(esperado) - set(concursos_ordenados))
+            raise ValueError(
+                "Base candidata tem lacuna(s) na sequencia de concursos: "
+                f"{faltando[:10]}{'...' if len(faltando) > 10 else ''}."
+            )
+
+    for coluna in COLUNAS_DEZENAS:
+        normalizados[coluna] = normalizados[coluna].astype(int)
+    normalizados["Concurso"] = normalizados["Concurso"].astype(int)
+    return normalizados
+
+
 def carregar_base(caminho: Path = CAMINHO_BASE_PADRAO) -> pd.DataFrame:
     if not caminho.exists():
         caminho.parent.mkdir(parents=True, exist_ok=True)
@@ -256,29 +404,74 @@ def baixar_base_oficial_completa() -> pd.DataFrame:
     registros = []
     for concurso in range(ultimo_na_base + 1, ultimo_concurso + 1):
         resultado = _abrir_url_json(f"{API_CAIXA_LOTOFACIL_URL}/{concurso}", timeout=12)
-        dezenas = resultado.get("listaDezenas") or resultado.get("dezenasSorteadasOrdemSorteio")
-        if not dezenas or len(dezenas) < 15:
-            raise ValueError(f"Concurso oficial {concurso} sem as 15 dezenas esperadas.")
-        linha = {"Concurso": resultado["numero"], "Data": resultado.get("dataApuracao", "")}
-        for i, dezena in enumerate(dezenas[:15], start=1):
-            linha[f"Bola{i}"] = int(dezena)
+        dezenas_brutas = resultado.get("listaDezenas") or resultado.get("dezenasSorteadasOrdemSorteio")
+        if not dezenas_brutas:
+            raise ValueError(f"Concurso oficial {concurso} sem dezenas na resposta da API.")
+        # Nunca truncar: uma resposta com 16+ dezenas e invalida, nao "15
+        # dezenas com ruido extra". validar_resultado (contrato LF-02) exige
+        # exatamente 15 e rejeita explicitamente float/bool/string/duplicata/
+        # fora de 1..25. _parse_inteiro_externo converte o formato textual
+        # documentado da API (ex.: "01") para inteiro canonico AQUI -- antes
+        # de qualquer valor entrar no DataFrame candidato; validar_base_estrita
+        # (mais abaixo) nao aceita mais strings, apenas o tipo ja canonico.
+        try:
+            numero_concurso = _parse_inteiro_externo(resultado.get("numero"), f"Concurso {concurso}: numero")
+            dezenas_inteiras = [
+                _parse_inteiro_externo(valor, f"Concurso {concurso}: dezena")
+                for valor in dezenas_brutas
+            ]
+            dezenas_validadas = validar_resultado(dezenas_inteiras)
+        except (ContratoLotofacilError, ValueError) as erro:
+            raise ValueError(f"Concurso oficial {concurso}: resultado invalido -- {erro}") from erro
+        linha = {"Concurso": numero_concurso, "Data": resultado.get("dataApuracao", "")}
+        for i, dezena in enumerate(dezenas_validadas, start=1):
+            linha[f"Bola{i}"] = dezena
         registros.append(linha)
 
     if registros:
         base = pd.concat([base, pd.DataFrame(registros)], ignore_index=True)
-    base = validar_base(base)
+    # Boundary canonica: unica autoridade estrita antes de a base candidata
+    # ser devolvida a atualizar_base_local() para persistencia. Validar
+    # aqui -- e nao so depois de escrever um arquivo temporario -- garante
+    # que nenhum dado externo invalido chegue perto de uma escrita real.
+    base = validar_base_estrita(base)
     if base.empty or int(base.iloc[-1]["Concurso"]) != ultimo_concurso:
         raise ValueError("Base oficial incompleta; arquivo local preservado.")
     return base
 
 
 def atualizar_base_local() -> bool:
+    """Atualiza o CSV historico oficial a partir da fonte externa (CAIXA).
+
+    Ordem estrita (a base candidata e validada ANTES de qualquer escrita,
+    nao apos escrever e reler -- reler-e-validar por si so nao e proteção
+    suficiente, pois o arquivo oficial so deve ser tocado depois que o
+    candidato inteiro ja e conhecido como 100% valido):
+
+        baixar_base_oficial_completa()  -- ja aplica validar_base_estrita()
+        internamente, como ultimo passo, antes de devolver o candidato
+        → validar_base_estrita() de novo, aqui -- DELIBERADAMENTE
+        redundante: o writer e a ultima barreira antes do arquivo oficial e
+        nunca deve depender apenas da validacao feita por quem produziu o
+        candidato (se um caller futuro mudar/quebrar essa validacao, o
+        writer ainda assim rejeita dado invalido)
+        → escreve em arquivo temporario no mesmo diretorio
+        → flush + fsync
+        → close
+        → replace atomico (os.replace via Path.replace)
+
+    Qualquer excecao em qualquer etapa preserva o arquivo oficial anterior
+    intacto e remove o temporario (nenhuma escrita parcial sobrevive).
+    """
     temporario = CAMINHO_BASE_PADRAO.with_suffix(CAMINHO_BASE_PADRAO.suffix + ".tmp")
     try:
         dados = baixar_base_oficial_completa()
+        dados = validar_base_estrita(dados)
         CAMINHO_BASE_PADRAO.parent.mkdir(parents=True, exist_ok=True)
-        dados.to_csv(temporario, index=False, encoding="utf-8-sig")
-        validar_base(pd.read_csv(temporario, encoding="utf-8-sig"))
+        with open(temporario, "w", newline="", encoding="utf-8-sig") as arquivo:
+            dados.to_csv(arquivo, index=False)
+            arquivo.flush()
+            os.fsync(arquivo.fileno())
         temporario.replace(CAMINHO_BASE_PADRAO)
         _log_update(f"Atualização executada com sucesso; CSV={int(dados['Concurso'].max())}")
     except Exception as erro:
