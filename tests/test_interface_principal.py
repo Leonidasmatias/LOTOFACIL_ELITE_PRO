@@ -1,21 +1,234 @@
 from __future__ import annotations
 
+import functools
+import hashlib
+import subprocess
 import unittest
 from pathlib import Path
+from tempfile import TemporaryDirectory
+from unittest import mock
+from urllib.error import URLError
 
+import pandas as pd
 from streamlit.testing.v1 import AppTest
+
+from src import historico_sqlite, jogos_salvos
+from src.repository import base_repository
+
+RAIZ = Path(__file__).resolve().parents[1]
+CSV_HISTORICO = RAIZ / "dados" / "lotofacil_historico.csv"
+SQLITE_V5 = RAIZ / "dados" / "lotofacil_v5.sqlite3"
+JOGOS_SALVOS_CSV = RAIZ / "exports" / "jogos_salvos_lotofacil.csv"
+
+
+def _hash_arquivo(caminho: Path) -> str | None:
+    """Hash do conteudo real em disco, ou None se o arquivo nao existir."""
+    if not caminho.exists():
+        return None
+    return hashlib.sha256(caminho.read_bytes()).hexdigest()
+
+
+def _git_status_porcelano() -> str | None:
+    """`git status --porcelain`, ou None se o git nao estiver disponivel
+    (a comparacao de hashes abaixo continua valendo de qualquer forma)."""
+    try:
+        resultado = subprocess.run(
+            ["git", "status", "--porcelain"],
+            cwd=RAIZ,
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return resultado.stdout if resultado.returncode == 0 else None
+
+
+def _bloquear_rede(*_args, **_kwargs):
+    raise URLError(
+        "Rede real bloqueada durante os testes de interface (isolamento LF-01A). "
+        "Se este teste precisa de uma resposta simulada da CAIXA, adicione o "
+        "cenario ao mock em vez de remover o bloqueio."
+    )
+
+
+def _com_caminho_fixo(funcao_original, caminho_fixo: Path):
+    """Redireciona uma funcao cujo unico parametro relevante e ``caminho``
+    para ``caminho_fixo`` -- funciona tanto quando ela e chamada sem
+    argumentos (uso direto em app.py) quanto quando e chamada com o
+    posicional ja resolvido por outra funcao desta mesma bateria de patches
+    (ex.: ``salvar_carteira_sqlite`` chama ``inicializar_banco(caminho)``
+    internamente)."""
+
+    @functools.wraps(funcao_original)
+    def wrapper(caminho=None, *args, **kwargs):
+        return funcao_original(caminho if caminho is not None else caminho_fixo, *args, **kwargs)
+
+    return wrapper
 
 
 class InterfacePrincipalTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
+        # --- Fotografia do estado real ANTES de qualquer execucao do app ---
+        # (isolamento LF-01A: garante que nada nesta classe toca rede/dados reais)
+        cls._git_status_antes = _git_status_porcelano()
+        cls._hash_csv_antes = _hash_arquivo(CSV_HISTORICO)
+        cls._hash_sqlite_antes = _hash_arquivo(SQLITE_V5)
+        cls._hash_jogos_salvos_antes = _hash_arquivo(JOGOS_SALVOS_CSV)
+
+        # --- Isolamento hermetico: nenhuma chamada de rede, nenhuma escrita real ---
+        tmp_dir = TemporaryDirectory()
+        cls.addClassCleanup(tmp_dir.cleanup)
+        banco_teste = Path(tmp_dir.name) / "lotofacil_teste.sqlite3"
+        jogos_salvos_teste = Path(tmp_dir.name) / "jogos_salvos_teste.csv"
+
+        # Fixture sintetica (nao real) de uma carteira ja salva, so para que
+        # a aba "Conferir Jogos" renderize seu estado normal (metricas +
+        # tabela) em vez do estado vazio -- concurso 999999 nao existe em
+        # nenhuma base real, entao o status permanece PENDENTE de forma
+        # deterministica, independente de quantos concursos a base historica
+        # real tiver na data em que este teste rodar.
+        pd.DataFrame(
+            [
+                {
+                    "DataHora": "2020-01-01T00:00:00-03:00",
+                    "Carteira": 1,
+                    "Concurso Alvo": 999999,
+                    "Perfil": "Diamante",
+                    "Dezenas": "01-02-03-04-05-06-07-08-09-10-11-12-13-14-15",
+                    "Score": "0.000000",
+                    "Soma": 120,
+                    "Pares": 8,
+                    "Impares": 7,
+                    "Status": "PENDENTE",
+                    "Acertos": "0",
+                }
+            ]
+        ).to_csv(jogos_salvos_teste, index=False, encoding="utf-8-sig")
+
+        cls._rede_chamadas = mock.Mock(side_effect=_bloquear_rede)
+        patches = [
+            # Unico ponto de saida HTTP real do modulo (usado por
+            # buscar_info_concurso, buscar_info_concurso_atual e
+            # baixar_base_oficial_completa/atualizar_base_local) --
+            # bloquear aqui cobre toda a cadeia de rede de uma vez.
+            mock.patch.object(base_repository, "urlopen", cls._rede_chamadas),
+            mock.patch.object(
+                historico_sqlite,
+                "inicializar_banco",
+                _com_caminho_fixo(historico_sqlite.inicializar_banco, banco_teste),
+            ),
+            mock.patch.object(
+                historico_sqlite,
+                "migrar_historico_csv",
+                functools.partial(historico_sqlite.migrar_historico_csv, caminho=banco_teste),
+            ),
+            mock.patch.object(
+                historico_sqlite,
+                "registrar_concurso_visto",
+                functools.partial(historico_sqlite.registrar_concurso_visto, caminho=banco_teste),
+            ),
+            mock.patch.object(
+                historico_sqlite,
+                "salvar_carteira_sqlite",
+                functools.partial(historico_sqlite.salvar_carteira_sqlite, caminho=banco_teste),
+            ),
+            mock.patch.object(
+                historico_sqlite,
+                "conferir_historico_sqlite",
+                functools.partial(historico_sqlite.conferir_historico_sqlite, caminho=banco_teste),
+            ),
+            mock.patch.object(
+                historico_sqlite,
+                "listar_historico_sqlite",
+                functools.partial(historico_sqlite.listar_historico_sqlite, caminho=banco_teste),
+            ),
+            mock.patch.object(
+                jogos_salvos,
+                "ler_jogos_salvos",
+                _com_caminho_fixo(jogos_salvos.ler_jogos_salvos, jogos_salvos_teste),
+            ),
+            mock.patch.object(
+                jogos_salvos,
+                "salvar_carteira",
+                functools.partial(jogos_salvos.salvar_carteira, caminho=jogos_salvos_teste),
+            ),
+            mock.patch.object(
+                jogos_salvos,
+                "conferir_jogos_salvos",
+                functools.partial(jogos_salvos.conferir_jogos_salvos, caminho=jogos_salvos_teste),
+            ),
+            mock.patch.object(
+                jogos_salvos,
+                "historico_desempenho_carteiras",
+                functools.partial(jogos_salvos.historico_desempenho_carteiras, caminho=jogos_salvos_teste),
+            ),
+        ]
+        for patcher in patches:
+            patcher.start()
+            cls.addClassCleanup(patcher.stop)
+
         cls.app = AppTest.from_file("app.py").run(timeout=60)
         cls.html = "\n".join(element.value for element in cls.app.markdown)
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        # Guarda de regressao (roda apos TODOS os testes desta classe,
+        # independente da ordem de execucao dos metodos): se qualquer
+        # execucao da interface tiver vazado para rede/dados reais, a
+        # classe inteira falha aqui.
+        cls._verificar_nenhum_efeito_colateral_real()
+        super().tearDownClass()
+
+    @classmethod
+    def _verificar_nenhum_efeito_colateral_real(cls) -> None:
+        assert _hash_arquivo(CSV_HISTORICO) == cls._hash_csv_antes, (
+            "dados/lotofacil_historico.csv foi alterado durante os testes de interface "
+            "-- vazamento de escrita real (isolamento LF-01A quebrado)."
+        )
+        assert _hash_arquivo(SQLITE_V5) == cls._hash_sqlite_antes, (
+            "dados/lotofacil_v5.sqlite3 foi alterado durante os testes de interface "
+            "-- vazamento de escrita real (isolamento LF-01A quebrado)."
+        )
+        assert _hash_arquivo(JOGOS_SALVOS_CSV) == cls._hash_jogos_salvos_antes, (
+            "exports/jogos_salvos_lotofacil.csv foi alterado durante os testes de interface "
+            "-- vazamento de escrita real (isolamento LF-01A quebrado)."
+        )
+        status_depois = _git_status_porcelano()
+        if cls._git_status_antes is not None and status_depois is not None:
+            assert status_depois == cls._git_status_antes, (
+                "git status mudou durante os testes de interface -- algum arquivo "
+                f"rastreado foi alterado (isolamento LF-01A quebrado):\n{status_depois}"
+            )
 
     def test_renderiza_cinco_cards_e_75_bolas(self) -> None:
         self.assertFalse(self.app.exception)
         self.assertEqual(self.html.count('class="elite-game-card"'), 5)
-        self.assertEqual(self.html.count('class="elite-ball"'), 75)
+        # Escopo estrutural: `class="elite-ball"` e `class="elite-balls"` sao
+        # reutilizadas por componentes independentes da pagina (ex.: Trend
+        # Hybrid 9+6, renderizado na mesma execucao porque st.tabs desenha
+        # todas as abas de uma vez) -- contar no HTML inteiro conta bolas de
+        # fora dos 5 cards oficiais. `montar_html_jogos(jogos)` (app.py) e
+        # emitido em um unico `st.markdown` que devolve exatamente
+        # `<section class="elite-results">` com os 5 `elite-game-card` e
+        # nada mais, entao isolar esse elemento isola os cards oficiais de
+        # qualquer outro componente da pagina, hoje ou no futuro.
+        cards_oficiais = [
+            elemento.value
+            for elemento in self.app.markdown
+            if 'class="elite-results"' in elemento.value
+        ]
+        self.assertEqual(
+            len(cards_oficiais),
+            1,
+            "Esperava exatamente um bloco `elite-results` (os 5 cards oficiais) "
+            "na pagina; a estrutura de montar_html_jogos() pode ter mudado.",
+        )
+        html_cards_oficiais = cards_oficiais[0]
+        self.assertEqual(html_cards_oficiais.count('class="elite-game-card"'), 5)
+        self.assertEqual(html_cards_oficiais.count('class="elite-ball"'), 75)
         self.assertEqual(self.html.count("Potencial 15"), 5)
 
     def test_botao_conferir_jogos_salvos_nao_quebra(self) -> None:
@@ -138,6 +351,22 @@ class InterfacePrincipalTest(unittest.TestCase):
         self.assertLess(pos_jogos, pos_csv)
         self.assertLess(pos_csv, pos_aviso)
         self.assertLess(pos_jogos, pos_aviso)
+
+    def test_zzz_isolamento_nao_deixa_efeitos_colaterais_reais(self) -> None:
+        """Guarda de regressao explicita (LF-01A): falha se a execucao da
+        interface (setUpClass + qualquer teste desta classe) tiver, em
+        algum momento, tentado rede real ou alterado CSV/SQLite/exports
+        reais. Nomeada para rodar por ultimo (ordem alfabetica) e reforcada
+        por tearDownClass, que roda de qualquer forma apos todos os
+        metodos, independente de ordenacao."""
+        self.assertGreaterEqual(
+            self._rede_chamadas.call_count,
+            1,
+            "O mock de rede nunca foi chamado -- a app pode ter parado de tentar "
+            "sincronizar com a CAIXA, o que tornaria esta guarda incapaz de provar "
+            "que uma tentativa real seria interceptada. Revise o isolamento.",
+        )
+        self._verificar_nenhum_efeito_colateral_real()
 
 
 if __name__ == "__main__":
