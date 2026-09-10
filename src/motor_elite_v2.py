@@ -4,6 +4,8 @@ from collections import Counter
 from itertools import combinations
 import math
 import random
+from types import MappingProxyType
+from typing import Mapping, Protocol
 
 import pandas as pd
 
@@ -109,11 +111,80 @@ def _similaridade_maxima(jogo: tuple[int, ...], escolhidos: list[tuple[int, ...]
     return max((len(set(jogo) & set(outro)) for outro in escolhidos), default=0)
 
 
+class CandidateTraceSink(Protocol):
+    """Contrato estrutural (Protocol) para observadores READ-ONLY do
+    processo de geracao/selecao de candidatos (LF-08). Uma implementacao
+    desta interface NUNCA deve influenciar RNG, ordem de insercao, score
+    ou selecao -- ela apenas RECEBE valores ja computados por
+    ``gerar_jogos_v2``. Quando ``trace=None`` (padrao), nenhum metodo
+    aqui e chamado e o comportamento de ``gerar_jogos_v2`` e
+    identico ao anterior a esta interface existir.
+
+    ``structure_metrics`` e sempre um ``Mapping`` congelado
+    (``MappingProxyType`` sobre uma copia), nunca o dict mutavel interno
+    de producao -- um observador nao tem como alterar o estado de
+    candidatos de producao atraves deste parametro (LF-08A, Fase 2).
+
+    Qualquer excecao levantada por ``record_evaluation``/
+    ``record_profile_summary`` e isolada por ``gerar_jogos_v2`` -- nunca
+    interrompe nem altera a execucao de producao (LF-08A, Fase 4). Um
+    sink pode OPCIONALMENTE implementar ``on_trace_error(erro)`` (fora
+    deste Protocol minimo) para ser notificado dessas falhas sem afetar
+    producao."""
+
+    def record_evaluation(
+        self,
+        *,
+        profile: str,
+        ticket: tuple[int, ...],
+        raw_structure_score: float,
+        structure_metrics: Mapping,
+        similarity_to_already_selected: int,
+        similarity_penalty: float,
+        final_candidate_score: float,
+        selected_so_far: tuple[tuple[int, ...], ...],
+        candidate_generation_index: int,
+        unique_candidates_so_far: int,
+    ) -> None: ...
+
+    def record_profile_summary(
+        self,
+        *,
+        profile: str,
+        attempts: int,
+        valid_candidates_seen: int,
+        unique_candidates_stored: int,
+        early_stop_reason: str,
+        selected_ticket: tuple[int, ...],
+        selected_final_score: float,
+    ) -> None: ...
+
+
+def _registrar_trace_com_seguranca(trace: object, nome_metodo: str, **kwargs: object) -> None:
+    """Chama um metodo do observador (``trace``) isolando qualquer
+    excecao levantada por ele da execucao de producao (LF-08A, Fase 4):
+    producao SEMPRE continua e retorna o mesmo resultado, com ou sem
+    trace, com ou sem falha do observador. Se o observador expuser um
+    hook opcional ``on_trace_error(erro)``, ele e notificado -- mas uma
+    falha nesse hook tambem nunca pode afetar producao."""
+    metodo = getattr(trace, nome_metodo)
+    try:
+        metodo(**kwargs)
+    except Exception as erro:  # noqa: BLE001 -- isolamento deliberado do observador
+        hook = getattr(trace, "on_trace_error", None)
+        if callable(hook):
+            try:
+                hook(erro)
+            except Exception:  # noqa: BLE001 -- o hook tambem nao pode afetar producao
+                pass
+
+
 def gerar_jogos_v2(
     df: pd.DataFrame,
     quantidade: int = 5,
     configuracao: ConfiguracaoMotor | None = None,
     semente: int | None = None,
+    trace: CandidateTraceSink | None = None,
 ) -> pd.DataFrame:
     config = configuracao or ConfiguracaoMotor()
     config.validar()
@@ -131,7 +202,11 @@ def gerar_jogos_v2(
         pesos = {d: max(1.0, ranking[d]) ** 1.35 for d in TODAS_DEZENAS}
         candidatos: dict[tuple[int, ...], tuple[float, dict]] = {}
         tentativas = max(config.candidatos_por_perfil, 100) * 3
+        tentativas_realizadas = 0
+        eventos_avaliacao = 0
+        atingiu_limite_candidatos = False
         for _ in range(tentativas):
+            tentativas_realizadas += 1
             jogo = _amostra_ponderada(rng, pesos)
             try:
                 validar_jogo(jogo, config, ultimo)
@@ -141,7 +216,24 @@ def gerar_jogos_v2(
             similaridade = _similaridade_maxima(jogo, escolhidos)
             penalidade_similaridade = max(0, similaridade - (15 - config.diferenca_minima_entre_jogos)) * 12
             candidatos[jogo] = (score - penalidade_similaridade, metricas)
+            eventos_avaliacao += 1
+            if trace is not None:
+                _registrar_trace_com_seguranca(
+                    trace,
+                    "record_evaluation",
+                    profile=perfil,
+                    ticket=jogo,
+                    raw_structure_score=score,
+                    structure_metrics=MappingProxyType(dict(metricas)),
+                    similarity_to_already_selected=similaridade,
+                    similarity_penalty=penalidade_similaridade,
+                    final_candidate_score=score - penalidade_similaridade,
+                    selected_so_far=tuple(escolhidos),
+                    candidate_generation_index=tentativas_realizadas,
+                    unique_candidates_so_far=len(candidatos),
+                )
             if len(candidatos) >= config.candidatos_por_perfil:
+                atingiu_limite_candidatos = True
                 break
         ordenados = sorted(candidatos.items(), key=lambda item: (-item[1][0], item[0]))
         escolha = next((item for item in ordenados if all(len(set(item[0]) - set(outro)) >= config.diferenca_minima_entre_jogos for outro in escolhidos)), None)
@@ -149,6 +241,18 @@ def gerar_jogos_v2(
             raise ValueError(f"Não foi possível formar carteira diversa no perfil {perfil}.")
         jogo, (score, metricas) = escolha
         escolhidos.append(jogo)
+        if trace is not None:
+            _registrar_trace_com_seguranca(
+                trace,
+                "record_profile_summary",
+                profile=perfil,
+                attempts=tentativas_realizadas,
+                valid_candidates_seen=eventos_avaliacao,
+                unique_candidates_stored=len(candidatos),
+                early_stop_reason="CANDIDATOS_POR_PERFIL_REACHED" if atingiu_limite_candidatos else "TENTATIVAS_EXHAUSTED",
+                selected_ticket=jogo,
+                selected_final_score=score,
+            )
         linha = {"Perfil": perfil, "Motor": MOTOR_ELITE_V2, "Score": round(score, 4), "Dezenas": list(jogo), **metricas}
         linha["Penalidade de similaridade"] = max(0, _similaridade_maxima(jogo, escolhidos[:-1]) - 10) * 12
         for posicao, dezena in enumerate(jogo, 1):
